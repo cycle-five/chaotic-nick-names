@@ -54,71 +54,92 @@ pub async fn randomize(
     }
 
     let total = assignments.len();
-    let mut changed = 0u32;
-    let mut errors = 0u32;
+    let channel_id = ctx.channel_id();
+    let bot_data = ctx.data().clone();
 
-    for (member, new_nick) in &assignments {
-        let nick = truncate_nick(new_nick);
-        match guild_id
-            .edit_member(&http, member.user.id, serenity::EditMember::new().nickname(nick))
-            .await
-        {
-            Ok(_) => {
-                changed += 1;
-                let (total_ch, bulk_ct) = {
-                    let mut data = ctx.data().write_state().await;
-                    data.guild_mut(guild_id).record_change(
-                        member.user.id.get(),
-                        member.user.name.clone(),
-                        member.nick.clone(),
-                        new_nick.clone(),
-                        cat_name.clone(),
-                    );
-                    let gs = data.guild(guild_id).unwrap();
-                    (gs.stats.total_changes, gs.stats.bulk_randomize_count)
-                };
-                // Persist to DB (best-effort)
-                let db = &ctx.data().db;
-                let gid = guild_id;
-                let nn = new_nick.clone();
-                let cn = cat_name.clone();
-                let un = member.user.name.clone();
-                let old = member.nick.clone();
-                let uid = member.user.id.get();
-                tokio::spawn({
-                    let db = db.clone();
-                    async move {
+    // Acknowledge the interaction immediately so the 15-minute follow-up window
+    // is not at risk even for very large guilds.
+    ctx.say(format!(
+        "🎲 Randomizing **{}** member(s) from the **{}** category — this may take a moment…",
+        total, cat_name
+    ))
+    .await?;
+
+    // Apply edits in the background; Serenity's built-in rate-limit handling
+    // manages pacing automatically, removing the need for a fixed sleep.
+    tokio::spawn(async move {
+        let mut changed = 0u32;
+        let mut errors = 0u32;
+
+        for (member, new_nick) in &assignments {
+            let nick = truncate_nick(new_nick);
+            match guild_id
+                .edit_member(&http, member.user.id, serenity::EditMember::new().nickname(nick))
+                .await
+            {
+                Ok(_) => {
+                    changed += 1;
+                    let (total_ch, bulk_ct) = {
+                        let mut data = bot_data.write_state().await;
+                        data.guild_mut(guild_id).record_change(
+                            member.user.id.get(),
+                            member.user.name.clone(),
+                            member.nick.clone(),
+                            new_nick.clone(),
+                            cat_name.clone(),
+                        );
+                        let gs = data.guild(guild_id).unwrap();
+                        (gs.stats.total_changes, gs.stats.bulk_randomize_count)
+                    };
+                    // Persist to DB (best-effort)
+                    let db = bot_data.db.clone();
+                    let gid = guild_id;
+                    let nn = new_nick.clone();
+                    let cn = cat_name.clone();
+                    let un = member.user.name.clone();
+                    let old = member.nick.clone();
+                    let uid = member.user.id.get();
+                    tokio::spawn(async move {
                         let _ = crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
                         let _ = crate::db::upsert_guild_stats(&db, gid, total_ch, bulk_ct).await;
                         let _ = crate::db::increment_category_usage(&db, gid, &cn).await;
-                    }
-                });
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Could not change nick for {} in {}: {:?}",
-                    member.user.name,
-                    guild_id,
-                    e
-                );
-                errors += 1;
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Could not change nick for {} in {}: {:?}",
+                        member.user.name,
+                        guild_id,
+                        e
+                    );
+                    errors += 1;
+                }
             }
         }
-        // Respect Discord rate-limits
-        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-    }
 
-    {
-        let mut data = ctx.data().write_state().await;
-        data.guild_mut(guild_id).stats.bulk_randomize_count += 1;
-    }
+        {
+            let mut data = bot_data.write_state().await;
+            data.guild_mut(guild_id).stats.bulk_randomize_count += 1;
+        }
 
-    ctx.say(format!(
-        "🎲 Randomized **{}** member(s) from the **{}** category.\n\
-         ✅ Changed: **{}** | ❌ Skipped/errors: **{}**",
-        total, cat_name, changed, errors
-    ))
-    .await?;
+        // Send a follow-up message with the final tally.
+        tracing::info!(
+            guild = %guild_id,
+            changed,
+            errors,
+            "Background randomize task completed"
+        );
+        let summary = format!(
+            "✅ Randomization complete! Changed: **{}** | ❌ Skipped/errors: **{}**",
+            changed, errors
+        );
+        if let Err(e) = channel_id
+            .send_message(&http, serenity::CreateMessage::new().content(summary))
+            .await
+        {
+            tracing::warn!("Failed to send randomize summary to channel {}: {:?}", channel_id, e);
+        }
+    });
 
     Ok(())
 }
