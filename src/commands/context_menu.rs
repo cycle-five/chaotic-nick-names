@@ -132,7 +132,7 @@ pub async fn assign_random_nick(
                     "✅ Renamed **{}** to **{}** (from the **{}** category).",
                     user.name, safe_nick, cat_name
                 ))
-                .allowed_mentions(serenity::CreateAllowedMentions::new()),
+                .allowed_mentions(serenity::CreateAllowedMentions::new().empty_parse()),
         )
         .await?;
 
