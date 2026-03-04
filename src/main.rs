@@ -5,10 +5,27 @@ use poise::serenity_prelude as serenity;
 
 mod commands;
 mod data;
+mod db;
 mod state;
 
+/// Shared application data: in-memory state + Postgres connection pool.
+pub struct BotData {
+    pub state: RwLock<state::AppState>,
+    pub db: sqlx::PgPool,
+}
+
+impl BotData {
+    pub async fn read_state(&self) -> tokio::sync::RwLockReadGuard<'_, state::AppState> {
+        self.state.read().await
+    }
+
+    pub async fn write_state(&self) -> tokio::sync::RwLockWriteGuard<'_, state::AppState> {
+        self.state.write().await
+    }
+}
+
 /// Shared application state threaded through every command.
-pub type Data = Arc<RwLock<state::AppState>>;
+pub type Data = Arc<BotData>;
 
 /// Unified error type used by all command handlers.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -31,11 +48,31 @@ async fn main() {
     let token =
         std::env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN must be set in the environment");
 
+    let database_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in the environment");
+
+    // Connect to Postgres and run migrations
+    let pool = db::setup(&database_url)
+        .await
+        .expect("Failed to connect to Postgres / run migrations");
+    tracing::info!("Database ready.");
+
+    // Pre-load all guild states from the database
+    let guilds = db::load_all_guilds(&pool)
+        .await
+        .expect("Failed to load guild states from the database");
+    tracing::info!("Loaded {} guild(s) from the database.", guilds.len());
+
+    let app_state = state::AppState::from_guilds(guilds);
+
+    let bot_data: Data = Arc::new(BotData {
+        state: RwLock::new(app_state),
+        db: pool,
+    });
+
     // GUILD_MEMBERS is a privileged intent — enable it in the Discord developer portal
     let intents =
         serenity::GatewayIntents::GUILDS | serenity::GatewayIntents::GUILD_MEMBERS;
-
-    let app_state: Data = Arc::new(RwLock::new(state::AppState::new()));
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
@@ -55,7 +92,7 @@ async fn main() {
                 tracing::info!("Registering global application commands...");
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 tracing::info!("Commands registered successfully.");
-                Ok(app_state)
+                Ok(bot_data)
             })
         })
         .build();

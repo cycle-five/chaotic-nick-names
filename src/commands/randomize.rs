@@ -27,7 +27,7 @@ pub async fn randomize(
 
     // Determine the category and its name list
     let (cat_name, names) = {
-        let data = ctx.data().read().await;
+        let data = ctx.data().read_state().await;
         let categories = match data.guild(guild_id) {
             Some(gs) => gs.all_categories(),
             None => crate::data::builtin_categories(),
@@ -35,9 +35,9 @@ pub async fn randomize(
         resolve_category(&categories, category.as_deref())?
     };
 
-    // Assign names (without-replacement draw, holding write lock)
+    // Assign names (without-replacement draw, holding write lock briefly)
     let assignments: Vec<(serenity::Member, String)> = {
-        let mut data = ctx.data().write().await;
+        let mut data = ctx.data().write_state().await;
         let gs = data.guild_mut(guild_id);
         members
             .iter()
@@ -45,6 +45,13 @@ pub async fn randomize(
             .filter_map(|m| gs.pick_name(&cat_name, &names).map(|n| (m.clone(), n)))
             .collect()
     };
+
+    // Persist the pool updates to DB (best-effort, outside the lock)
+    for (_, name) in &assignments {
+        if let Err(e) = crate::db::add_used_name(&ctx.data().db, guild_id, &cat_name, name).await {
+            tracing::warn!("DB error persisting used_name: {:?}", e);
+        }
+    }
 
     let total = assignments.len();
     let mut changed = 0u32;
@@ -58,14 +65,34 @@ pub async fn randomize(
         {
             Ok(_) => {
                 changed += 1;
-                let mut data = ctx.data().write().await;
-                data.guild_mut(guild_id).record_change(
-                    member.user.id.get(),
-                    member.user.name.clone(),
-                    member.nick.clone(),
-                    new_nick.clone(),
-                    cat_name.clone(),
-                );
+                let (total_ch, bulk_ct) = {
+                    let mut data = ctx.data().write_state().await;
+                    data.guild_mut(guild_id).record_change(
+                        member.user.id.get(),
+                        member.user.name.clone(),
+                        member.nick.clone(),
+                        new_nick.clone(),
+                        cat_name.clone(),
+                    );
+                    let gs = data.guild(guild_id).unwrap();
+                    (gs.stats.total_changes, gs.stats.bulk_randomize_count)
+                };
+                // Persist to DB (best-effort)
+                let db = &ctx.data().db;
+                let gid = guild_id;
+                let nn = new_nick.clone();
+                let cn = cat_name.clone();
+                let un = member.user.name.clone();
+                let old = member.nick.clone();
+                let uid = member.user.id.get();
+                tokio::spawn({
+                    let db = db.clone();
+                    async move {
+                        let _ = crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
+                        let _ = crate::db::upsert_guild_stats(&db, gid, total_ch, bulk_ct).await;
+                        let _ = crate::db::increment_category_usage(&db, gid, &cn).await;
+                    }
+                });
             }
             Err(e) => {
                 tracing::warn!(
@@ -77,12 +104,12 @@ pub async fn randomize(
                 errors += 1;
             }
         }
-        // Respect Discord rate-limits (~5 req/s per endpoint)
+        // Respect Discord rate-limits
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     }
 
     {
-        let mut data = ctx.data().write().await;
+        let mut data = ctx.data().write_state().await;
         data.guild_mut(guild_id).stats.bulk_randomize_count += 1;
     }
 
@@ -149,12 +176,18 @@ pub fn resolve_category(
 /// Truncate a potential nickname to Discord's 32-character limit,
 /// respecting UTF-8 character boundaries.
 pub fn truncate_nick(s: &str) -> &str {
-    if s.len() <= 32 {
+    // Fast-path: most built-in names are well under 32 chars
+    if s.chars().count() <= 32 {
         return s;
     }
-    let mut idx = 32;
-    while !s.is_char_boundary(idx) {
-        idx -= 1;
+    if let Some((idx, _)) = s.char_indices().nth(32) {
+        &s[..idx]
+    } else {
+        s
     }
-    &s[..idx]
+}
+
+/// Escape `@` to prevent unintended mention pings when echoing user-controlled text.
+pub fn escape_mentions(s: &str) -> String {
+    s.replace('@', "@\u{200b}")
 }

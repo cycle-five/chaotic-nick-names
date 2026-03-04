@@ -6,13 +6,20 @@ use poise::serenity_prelude::GuildId;
 use crate::data;
 
 pub struct AppState {
-    guilds: HashMap<GuildId, GuildState>,
+    pub guilds: HashMap<GuildId, GuildState>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
             guilds: HashMap::new(),
+        }
+    }
+
+    /// Build an `AppState` pre-populated from database rows (used at startup).
+    pub fn from_guilds(guilds: Vec<(GuildId, GuildState)>) -> Self {
+        Self {
+            guilds: guilds.into_iter().collect(),
         }
     }
 
@@ -90,6 +97,28 @@ impl GuildState {
             .insert(picked.clone());
 
         Some(picked)
+    }
+
+    /// Use a specific name from `category`, marking it as used.
+    /// Returns an error string if the name is not in `all_names`.
+    pub fn use_specific_name(&mut self, category: &str, name: &str, all_names: &[String]) -> Result<String, String> {
+        if !all_names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            return Err(format!(
+                "**{}** is not in the **{}** category.",
+                name, category
+            ));
+        }
+        // Find the canonical casing
+        let canonical = all_names
+            .iter()
+            .find(|n| n.eq_ignore_ascii_case(name))
+            .cloned()
+            .unwrap();
+        self.used_names
+            .entry(category.to_string())
+            .or_default()
+            .insert(canonical.clone());
+        Ok(canonical)
     }
 
     /// Reset the used-name pool for `category` (or every category if `None`).

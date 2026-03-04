@@ -6,7 +6,9 @@ category is used before any name repeats.
 
 Built with the [Serenity](https://github.com/serenity-rs/serenity) Discord
 library for Rust (via the [Poise](https://github.com/serenity-rs/poise)
-slash-command framework).
+slash-command framework).  State is persisted to **PostgreSQL** via
+[sqlx](https://github.com/launchbadger/sqlx) so history, stats, custom
+categories, and name-pool state survive bot restarts.
 
 ---
 
@@ -16,14 +18,15 @@ slash-command framework).
 |---------|---------|
 | **Slash commands** | Registered globally; work in every server the bot joins |
 | **Randomize everyone** | `/randomize` renames every non-bot member in the server |
-| **Rename one user** | `/nick @user` renames a single member |
-| **Context-menu command** | Right-click any user → *Assign Random Nick* |
+| **Rename one user** | `/nick @user [category] [specific_name]` renames a single member |
+| **Context-menu command** | Right-click any user → *Assign Random Nick* (modal lets you pick category and/or a specific name) |
 | **Without-replacement draws** | The full pool is exhausted before any name repeats |
 | **8 built-in categories** | scientists, elements, chemical\_compounds, amusement\_parks, dinosaurs, planets, colors, fruits |
-| **Custom categories** | Server admins can add (and remove) their own name lists |
+| **Custom categories** | Server admins can add (and remove) their own name lists inline or via CSV file upload |
 | **Statistics** | `/stats` shows total changes, bulk-randomize runs, and top-used categories |
 | **History** | `/history` shows the last 25 nickname changes |
 | **Pool reset** | `/reset_pool` lets a name re-enter the draw before the pool is exhausted |
+| **PostgreSQL persistence** | All state is stored in Postgres; the bot reloads from the DB on startup |
 
 ---
 
@@ -34,9 +37,10 @@ Assigns a random nickname from `category` to every non-bot member.
 If `category` is omitted, a random category is chosen.  
 **Requires:** Manage Nicknames permission.
 
-### `/nick <user> [category]`
-Assigns a single random nickname to `<user>`.  
-If `category` is omitted, a random category is chosen.  
+### `/nick <user> [category] [specific_name]`
+Assigns a nickname to `<user>`.  
+- `category` — which category to draw from (random if omitted)  
+- `specific_name` — assign an exact name from the chosen category (random from category if omitted)  
 **Requires:** Manage Nicknames permission.
 
 ### `/categories list`
@@ -48,6 +52,13 @@ Adds a custom category.  `<items>` is a comma-separated list of nickname values.
 
 ### `/categories remove <name>`
 Removes a custom category (built-in categories cannot be removed).  
+**Requires:** Manage Server permission.
+
+### `/categories import <file>`
+Import one or more categories from a CSV file attachment.  
+Each row: `category_name,name1,name2,…`  
+Multiple rows create/replace multiple categories at once.  
+Lines starting with `#` and blank lines are skipped.  
 **Requires:** Manage Server permission.
 
 ### `/stats`
@@ -69,7 +80,11 @@ previously assigned names become available for selection again.
 ## Context-menu command
 
 Right-click (or long-press on mobile) any server member → *Apps* →
-**Assign Random Nick** to assign a name from a randomly chosen category.  
+**Assign Random Nick** to assign a nickname.  
+A modal lets you optionally specify:
+- **Category** — leave blank for a random category
+- **Specific name** — leave blank to pick randomly from the chosen category
+
 **Requires:** Manage Nicknames permission.
 
 ---
@@ -89,10 +104,28 @@ Right-click (or long-press on mobile) any server member → *Apps* →
 
 ---
 
+## CSV import format
+
+Upload a plain-text `.csv` (or `.txt`) file to `/categories import`.  
+Each row becomes one category:
+
+```
+# Lines starting with # are ignored
+scientists,Einstein,Newton,Darwin,Curie,Tesla
+elements,Hydrogen,Helium,Lithium,Carbon,Oxygen
+my_parks,Cedar Point,Dollywood,Tivoli Gardens
+```
+
+Existing categories with the same name are replaced and their used-name pools
+are reset.
+
+---
+
 ## Setup
 
 ### Prerequisites
 - Rust 1.70+ (`rustup` recommended)
+- PostgreSQL 14+ (any recent version works)
 - A Discord application with a bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 
 ### Required bot permissions
@@ -114,7 +147,23 @@ list all members when `/randomize` is used.
 
 ```bash
 cp .env.example .env
-# Edit .env and set DISCORD_TOKEN=your_token_here
+# Edit .env and fill in DISCORD_TOKEN and DATABASE_URL
+```
+
+The `.env` values:
+
+| Variable | Description |
+|----------|-------------|
+| `DISCORD_TOKEN` | Your bot token from the Developer Portal |
+| `DATABASE_URL` | Postgres connection string, e.g. `postgres://user:pw@localhost/chaotic_nick_names` |
+| `RUST_LOG` | Log filter (optional, default `chaotic_nick_names=info,warn`) |
+
+### Database setup
+
+Create the database (the bot runs migrations automatically on startup):
+
+```sql
+CREATE DATABASE chaotic_nick_names;
 ```
 
 ### Build & run
@@ -127,7 +176,7 @@ cargo build --release
 Or for development:
 
 ```bash
-DISCORD_TOKEN=your_token cargo run
+DISCORD_TOKEN=your_token DATABASE_URL=postgres://... cargo run
 ```
 
 Commands are registered **globally** on first startup (Discord propagation can
@@ -138,3 +187,4 @@ take up to one hour).
 ## License
 
 MIT
+

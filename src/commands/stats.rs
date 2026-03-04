@@ -10,7 +10,7 @@ pub async fn stats(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
 
     let (total, bulk, mut top_cats) = {
-        let data = ctx.data().read().await;
+        let data = ctx.data().read_state().await;
         match data.guild(guild_id) {
             None => {
                 ctx.say("No statistics recorded yet — try `/randomize` first!")
