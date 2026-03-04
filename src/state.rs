@@ -131,6 +131,18 @@ impl GuildState {
         }
     }
 
+    /// Remove a custom category and clean up all associated tracking data
+    /// (`used_names` and `stats.category_usage`).
+    /// Returns `true` if the category existed and was removed.
+    pub fn remove_custom_category(&mut self, key: &str) -> bool {
+        let removed = self.custom_categories.remove(key).is_some();
+        if removed {
+            self.used_names.remove(key);
+            self.stats.category_usage.remove(key);
+        }
+        removed
+    }
+
     /// Prepend a history entry, keeping the deque at most 200 entries.
     pub fn add_history(&mut self, entry: HistoryEntry) {
         self.history.push_front(entry);
@@ -274,6 +286,54 @@ mod tests {
         gs.pick_name("cat2", &list);
         gs.reset_pool(None);
         assert!(gs.used_names.is_empty());
+    }
+
+    // ── GuildState::remove_custom_category ────────────────────────────────────
+
+    #[test]
+    fn remove_custom_category_returns_true_when_present() {
+        let mut gs = GuildState::new();
+        gs.custom_categories.insert("mycat".to_string(), vec!["A".to_string()]);
+        assert!(gs.remove_custom_category("mycat"));
+    }
+
+    #[test]
+    fn remove_custom_category_returns_false_when_absent() {
+        let mut gs = GuildState::new();
+        assert!(!gs.remove_custom_category("nonexistent"));
+    }
+
+    #[test]
+    fn remove_custom_category_cleans_up_used_names() {
+        let mut gs = GuildState::new();
+        let list = names(&["A", "B"]);
+        gs.custom_categories.insert("mycat".to_string(), list.clone());
+        gs.pick_name("mycat", &list);
+        assert!(gs.used_names.contains_key("mycat"));
+        gs.remove_custom_category("mycat");
+        assert!(!gs.used_names.contains_key("mycat"));
+    }
+
+    #[test]
+    fn remove_custom_category_cleans_up_stats() {
+        let mut gs = GuildState::new();
+        gs.custom_categories.insert("mycat".to_string(), vec!["A".to_string()]);
+        gs.record_change(1, "user".to_string(), None, "A".to_string(), "mycat".to_string());
+        assert!(gs.stats.category_usage.contains_key("mycat"));
+        gs.remove_custom_category("mycat");
+        assert!(!gs.stats.category_usage.contains_key("mycat"));
+    }
+
+    #[test]
+    fn remove_custom_category_does_not_affect_other_categories() {
+        let mut gs = GuildState::new();
+        let list = names(&["X"]);
+        gs.custom_categories.insert("cat_a".to_string(), list.clone());
+        gs.custom_categories.insert("cat_b".to_string(), list.clone());
+        gs.pick_name("cat_b", &list);
+        gs.remove_custom_category("cat_a");
+        assert!(gs.custom_categories.contains_key("cat_b"));
+        assert!(gs.used_names.contains_key("cat_b"));
     }
 
     // ── GuildState::all_categories ────────────────────────────────────────────

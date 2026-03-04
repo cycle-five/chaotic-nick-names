@@ -157,12 +157,7 @@ pub async fn remove(
     let removed = {
         let mut data = ctx.data().write_state().await;
         let gs = data.guild_mut(guild_id);
-        let removed = gs.custom_categories.remove(&key).is_some();
-        if removed {
-            // Clean up the pool so no stale entries remain
-            gs.reset_pool(Some(&key));
-        }
-        removed
+        gs.remove_custom_category(&key)
     };
 
     if removed {
