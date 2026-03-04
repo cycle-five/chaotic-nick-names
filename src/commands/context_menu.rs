@@ -125,11 +125,15 @@ pub async fn assign_random_nick(
     }
 
     let safe_nick = escape_mentions(&new_nick);
-    ctx.say(format!(
-        "✅ Renamed **{}** to **{}** (from the **{}** category).",
-        user.name, safe_nick, cat_name
-    ))
-    .await?;
+    ctx
+        .send(|m| {
+            m.content(format!(
+                "✅ Renamed **{}** to **{}** (from the **{}** category).",
+                user.name, new_nick, cat_name
+            ))
+            .allowed_mentions(|f| f.empty())
+        })
+        .await?;
 
     Ok(())
 }
