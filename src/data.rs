@@ -136,3 +136,47 @@ pub fn builtin_category_names() -> Vec<String> {
     names.sort();
     names
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_categories_is_non_empty() {
+        let cats = builtin_categories();
+        assert!(!cats.is_empty());
+    }
+
+    #[test]
+    fn builtin_categories_each_non_empty() {
+        for (name, items) in builtin_categories() {
+            assert!(!items.is_empty(), "category '{}' has no items", name);
+        }
+    }
+
+    #[test]
+    fn builtin_category_names_is_sorted() {
+        let names = builtin_category_names();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted);
+    }
+
+    #[test]
+    fn builtin_category_names_matches_keys() {
+        let cats = builtin_categories();
+        let names = builtin_category_names();
+        assert_eq!(names.len(), cats.len());
+        for name in &names {
+            assert!(cats.contains_key(name));
+        }
+    }
+
+    #[test]
+    fn known_categories_are_present() {
+        let cats = builtin_categories();
+        for expected in &["scientists", "elements", "planets", "colors"] {
+            assert!(cats.contains_key(*expected), "missing category '{}'", expected);
+        }
+    }
+}

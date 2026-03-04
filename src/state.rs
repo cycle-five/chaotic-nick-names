@@ -181,3 +181,194 @@ pub struct GuildStats {
     pub category_usage: HashMap<String, u64>,
     pub bulk_randomize_count: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    // ── GuildState::pick_name ─────────────────────────────────────────────────
+
+    #[test]
+    fn pick_name_returns_name_from_list() {
+        let mut gs = GuildState::new();
+        let list = names(&["Alpha", "Beta", "Gamma"]);
+        let picked = gs.pick_name("test", &list).unwrap();
+        assert!(list.contains(&picked));
+    }
+
+    #[test]
+    fn pick_name_empty_list_returns_none() {
+        let mut gs = GuildState::new();
+        assert!(gs.pick_name("test", &[]).is_none());
+    }
+
+    #[test]
+    fn pick_name_without_replacement_no_repeats_until_exhausted() {
+        let mut gs = GuildState::new();
+        let list = names(&["A", "B", "C"]);
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..list.len() {
+            let picked = gs.pick_name("test", &list).unwrap();
+            assert!(!seen.contains(&picked), "duplicate pick before pool exhausted");
+            seen.insert(picked);
+        }
+        assert_eq!(seen.len(), 3);
+    }
+
+    #[test]
+    fn pick_name_resets_pool_after_exhaustion() {
+        let mut gs = GuildState::new();
+        let list = names(&["X", "Y"]);
+        gs.pick_name("test", &list);
+        gs.pick_name("test", &list);
+        // Next pick should succeed (pool was auto-reset)
+        assert!(gs.pick_name("test", &list).is_some());
+    }
+
+    // ── GuildState::use_specific_name ─────────────────────────────────────────
+
+    #[test]
+    fn use_specific_name_valid_name_returns_canonical() {
+        let mut gs = GuildState::new();
+        let list = names(&["Einstein", "Newton"]);
+        let result = gs.use_specific_name("scientists", "einstein", &list);
+        assert_eq!(result.unwrap(), "Einstein");
+    }
+
+    #[test]
+    fn use_specific_name_invalid_name_returns_error() {
+        let mut gs = GuildState::new();
+        let list = names(&["Einstein", "Newton"]);
+        let result = gs.use_specific_name("scientists", "Darwin", &list);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn use_specific_name_marks_as_used() {
+        let mut gs = GuildState::new();
+        let list = names(&["A", "B"]);
+        gs.use_specific_name("cat", "A", &list).unwrap();
+        assert!(gs.used_names["cat"].contains("A"));
+    }
+
+    // ── GuildState::reset_pool ────────────────────────────────────────────────
+
+    #[test]
+    fn reset_pool_specific_category_clears_it() {
+        let mut gs = GuildState::new();
+        let list = names(&["A", "B"]);
+        gs.pick_name("cat", &list);
+        gs.reset_pool(Some("cat"));
+        assert!(!gs.used_names.contains_key("cat"));
+    }
+
+    #[test]
+    fn reset_pool_none_clears_all() {
+        let mut gs = GuildState::new();
+        let list = names(&["A"]);
+        gs.pick_name("cat1", &list);
+        gs.pick_name("cat2", &list);
+        gs.reset_pool(None);
+        assert!(gs.used_names.is_empty());
+    }
+
+    // ── GuildState::all_categories ────────────────────────────────────────────
+
+    #[test]
+    fn all_categories_includes_builtins() {
+        let gs = GuildState::new();
+        let cats = gs.all_categories();
+        assert!(cats.contains_key("scientists"));
+        assert!(cats.contains_key("planets"));
+    }
+
+    #[test]
+    fn all_categories_custom_overrides_builtin() {
+        let mut gs = GuildState::new();
+        gs.custom_categories
+            .insert("scientists".to_string(), vec!["CustomGuy".to_string()]);
+        let cats = gs.all_categories();
+        assert_eq!(cats["scientists"], vec!["CustomGuy".to_string()]);
+    }
+
+    #[test]
+    fn all_categories_includes_extra_custom() {
+        let mut gs = GuildState::new();
+        gs.custom_categories
+            .insert("my_custom".to_string(), vec!["FooBar".to_string()]);
+        let cats = gs.all_categories();
+        assert!(cats.contains_key("my_custom"));
+    }
+
+    // ── GuildState::add_history / record_change ───────────────────────────────
+
+    #[test]
+    fn add_history_prepends_entry() {
+        let mut gs = GuildState::new();
+        gs.add_history(HistoryEntry {
+            timestamp: Utc::now(),
+            user_id: 1,
+            user_name: "alice".to_string(),
+            old_nick: None,
+            new_nick: "Newton".to_string(),
+            category: "scientists".to_string(),
+        });
+        assert_eq!(gs.history.len(), 1);
+        assert_eq!(gs.history[0].new_nick, "Newton");
+    }
+
+    #[test]
+    fn add_history_capped_at_200() {
+        let mut gs = GuildState::new();
+        for i in 0..210u64 {
+            gs.add_history(HistoryEntry {
+                timestamp: Utc::now(),
+                user_id: i,
+                user_name: "user".to_string(),
+                old_nick: None,
+                new_nick: format!("nick{}", i),
+                category: "test".to_string(),
+            });
+        }
+        assert_eq!(gs.history.len(), 200);
+    }
+
+    #[test]
+    fn record_change_increments_total_changes() {
+        let mut gs = GuildState::new();
+        gs.record_change(1, "alice".to_string(), None, "Newton".to_string(), "scientists".to_string());
+        assert_eq!(gs.stats.total_changes, 1);
+    }
+
+    #[test]
+    fn record_change_increments_category_usage() {
+        let mut gs = GuildState::new();
+        gs.record_change(1, "alice".to_string(), None, "Newton".to_string(), "scientists".to_string());
+        gs.record_change(2, "bob".to_string(), None, "Einstein".to_string(), "scientists".to_string());
+        assert_eq!(gs.stats.category_usage["scientists"], 2);
+    }
+
+    // ── AppState ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn app_state_from_guilds_loads_correctly() {
+        use poise::serenity_prelude::GuildId;
+        let gid = GuildId::new(42);
+        let gs = GuildState::new();
+        let state = AppState::from_guilds(vec![(gid, gs)]);
+        assert!(state.guild(gid).is_some());
+    }
+
+    #[test]
+    fn app_state_guild_mut_creates_default_on_missing() {
+        use poise::serenity_prelude::GuildId;
+        let mut state = AppState::new();
+        let gid = GuildId::new(99);
+        let gs = state.guild_mut(gid);
+        assert!(gs.history.is_empty());
+    }
+}

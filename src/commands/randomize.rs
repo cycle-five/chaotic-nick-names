@@ -191,3 +191,102 @@ pub fn truncate_nick(s: &str) -> &str {
 pub fn escape_mentions(s: &str) -> String {
     s.replace('@', "@\u{200b}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // ── truncate_nick ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn truncate_nick_short_string_unchanged() {
+        assert_eq!(truncate_nick("Einstein"), "Einstein");
+    }
+
+    #[test]
+    fn truncate_nick_exactly_32_chars_unchanged() {
+        let s = "a".repeat(32);
+        assert_eq!(truncate_nick(&s), s.as_str());
+    }
+
+    #[test]
+    fn truncate_nick_long_string_capped_at_32() {
+        let s = "a".repeat(50);
+        let result = truncate_nick(&s);
+        assert_eq!(result.chars().count(), 32);
+    }
+
+    #[test]
+    fn truncate_nick_respects_utf8_boundaries() {
+        // Each 'é' is 2 bytes; the function counts codepoints, not bytes.
+        let s = "é".repeat(40);
+        let result = truncate_nick(&s);
+        assert_eq!(result.chars().count(), 32);
+    }
+
+    // ── escape_mentions ───────────────────────────────────────────────────────
+
+    #[test]
+    fn escape_mentions_inserts_zwsp_after_at() {
+        let result = escape_mentions("@everyone");
+        assert!(result.contains('\u{200b}'));
+        assert!(result.starts_with('@'));
+    }
+
+    #[test]
+    fn escape_mentions_no_at_unchanged() {
+        let input = "hello world";
+        assert_eq!(escape_mentions(input), input);
+    }
+
+    #[test]
+    fn escape_mentions_multiple_at_signs() {
+        let result = escape_mentions("@a @b");
+        assert_eq!(result.matches('\u{200b}').count(), 2);
+    }
+
+    // ── resolve_category ──────────────────────────────────────────────────────
+
+    fn sample_categories() -> HashMap<String, Vec<String>> {
+        let mut m = HashMap::new();
+        m.insert(
+            "scientists".to_string(),
+            vec!["Einstein".to_string(), "Newton".to_string()],
+        );
+        m.insert(
+            "planets".to_string(),
+            vec!["Mars".to_string(), "Venus".to_string()],
+        );
+        m
+    }
+
+    #[test]
+    fn resolve_category_known_name_returns_it() {
+        let cats = sample_categories();
+        let (name, names) = resolve_category(&cats, Some("scientists")).unwrap();
+        assert_eq!(name, "scientists");
+        assert!(names.contains(&"Einstein".to_string()));
+    }
+
+    #[test]
+    fn resolve_category_unknown_name_returns_error() {
+        let cats = sample_categories();
+        let result = resolve_category(&cats, Some("dinosaurs"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_category_none_picks_a_random_category() {
+        let cats = sample_categories();
+        let (name, names) = resolve_category(&cats, None).unwrap();
+        assert!(cats.contains_key(&name));
+        assert!(!names.is_empty());
+    }
+
+    #[test]
+    fn resolve_category_empty_map_returns_error() {
+        let cats: HashMap<String, Vec<String>> = HashMap::new();
+        assert!(resolve_category(&cats, None).is_err());
+    }
+}
