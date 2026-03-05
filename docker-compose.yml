@@ -1,0 +1,28 @@
+services:
+  bot:
+    build: .
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DATABASE_URL: postgres://chaotic:${POSTGRES_PASSWORD:-chaotic}@db:5432/chaotic_nick_names
+      RUST_LOG: ${RUST_LOG:-chaotic_nick_names=info,warn}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: chaotic_nick_names
+      POSTGRES_USER: chaotic
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chaotic}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chaotic"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
