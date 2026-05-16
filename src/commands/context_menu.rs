@@ -1,6 +1,8 @@
 use poise::serenity_prelude as serenity;
 
-use crate::commands::randomize::{escape_mentions, resolve_category, truncate_nick};
+use crate::commands::randomize::{
+    escape_mentions, nick_edit_failure_message, resolve_category, truncate_nick,
+};
 use crate::{Data, Error};
 
 /// Modal shown when a user right-clicks → **Assign Random Nick**.
@@ -39,6 +41,10 @@ pub async fn assign_random_nick(
         Some(m) => m,
         None => return Ok(()), // user dismissed
     };
+
+    // The modal submission opens a fresh interaction; defer so the member
+    // fetch + edit below can't blow the 3-second response window.
+    ctx.defer().await?;
 
     // Normalise inputs
     let cat_input = category.as_deref().map(str::trim).filter(|s| !s.is_empty());
@@ -90,9 +96,19 @@ pub async fn assign_random_nick(
     let member = guild_id.member(&http, user.id).await?;
     let old_nick = member.nick.clone();
 
-    guild_id
+    if let Err(e) = guild_id
         .edit_member(&http, user.id, serenity::EditMember::new().nickname(&nick))
+        .await
+    {
+        tracing::warn!("nick edit failed for {} in {}: {:?}", user.name, guild_id, e);
+        ctx.send(
+            poise::CreateReply::default()
+                .content(nick_edit_failure_message(&user.name))
+                .allowed_mentions(serenity::CreateAllowedMentions::new()),
+        )
         .await?;
+        return Ok(());
+    }
 
     let (total_ch, bulk_ct) = {
         let mut data = ctx.data.write_state().await;

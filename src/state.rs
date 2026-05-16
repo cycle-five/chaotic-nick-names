@@ -28,7 +28,7 @@ impl AppState {
     }
 
     pub fn guild_mut(&mut self, guild_id: GuildId) -> &mut GuildState {
-        self.guilds.entry(guild_id).or_insert_with(GuildState::new)
+        self.guilds.entry(guild_id).or_default()
     }
 }
 

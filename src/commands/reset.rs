@@ -15,11 +15,28 @@ use crate::{Context, Error};
 )]
 pub async fn reset_pool(
     ctx: Context<'_>,
-    #[description = "Category to reset (omit to reset all categories)"] category: Option<String>,
+    #[description = "Category to reset (omit to reset all categories)"]
+    #[autocomplete = "crate::commands::randomize::autocomplete_category"]
+    category: Option<String>,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
     // Normalise to lowercase so it matches the stored keys
     let cat = category.as_deref().map(|s| s.to_lowercase());
+
+    // Reject typos instead of silently reporting a successful reset.
+    if let Some(c) = &cat {
+        let known = {
+            let data = ctx.data().read_state().await;
+            match data.guild(guild_id) {
+                Some(gs) => gs.all_categories().contains_key(c),
+                None => crate::data::builtin_category_names().contains(c),
+            }
+        };
+        if !known {
+            ctx.say(format!("❌ No category named `{}` exists.", c)).await?;
+            return Ok(());
+        }
+    }
 
     {
         let mut data = ctx.data().write_state().await;

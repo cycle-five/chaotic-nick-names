@@ -249,6 +249,52 @@ pub async fn clear_used_names(
     Ok(())
 }
 
+/// Return each user's *original* nickname for this guild — the `old_nick`
+/// recorded on the earliest nick-change row for that user. `None` means the
+/// user had no nickname before the bot first touched them (so restoring
+/// should clear their nickname). Used by `/restore`.
+pub async fn original_nicks(
+    pool: &PgPool,
+    guild_id: GuildId,
+    user_id: Option<u64>,
+) -> Result<Vec<(u64, Option<String>)>, sqlx::Error> {
+    let gid = guild_id.get() as i64;
+    let rows = match user_id {
+        Some(uid) => {
+            sqlx::query(
+                r#"
+                SELECT DISTINCT ON (user_id) user_id, old_nick
+                FROM nick_changes
+                WHERE guild_id = $1 AND user_id = $2
+                ORDER BY user_id, changed_at ASC
+                "#,
+            )
+            .bind(gid)
+            .bind(uid as i64)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query(
+                r#"
+                SELECT DISTINCT ON (user_id) user_id, old_nick
+                FROM nick_changes
+                WHERE guild_id = $1
+                ORDER BY user_id, changed_at ASC
+                "#,
+            )
+            .bind(gid)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.get::<i64, _>("user_id") as u64, r.get::<Option<String>, _>("old_nick")))
+        .collect())
+}
+
 /// Insert a single nick-change row.
 pub async fn insert_nick_change(
     pool: &PgPool,

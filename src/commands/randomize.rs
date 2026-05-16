@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use poise::serenity_prelude as serenity;
 
 use crate::{Context, Error};
 
-/// Assign a random nickname from a category to every member of the server.
+/// Assign a random nickname to every member of the server.
 ///
 /// Names are chosen without replacement — the full pool must be exhausted before
 /// any name is repeated.  Requires the **Manage Nicknames** permission.
@@ -15,40 +17,133 @@ use crate::{Context, Error};
 pub async fn randomize(
     ctx: Context<'_>,
     #[description = "Category to pick names from (omit for a random category)"]
+    #[autocomplete = "autocomplete_category"]
     category: Option<String>,
+    #[description = "Full chaos: give every member a name from a DIFFERENT random category"]
+    chaos: Option<bool>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
     let guild_id = ctx.guild_id().unwrap();
     let http = ctx.serenity_context().http.clone();
+    let chaos = chaos.unwrap_or(false);
 
     // Collect members (up to 1,000 per page; paginated for larger servers)
     let members = fetch_all_members(guild_id, &http).await?;
+    let member_count = members.iter().filter(|m| !m.user.bot).count();
 
-    // Determine the category and its name list
-    let (cat_name, names) = {
+    if member_count == 0 {
+        ctx.say("There are no non-bot members to randomize.").await?;
+        return Ok(());
+    }
+
+    // Snapshot the category map once.
+    let categories = {
         let data = ctx.data().read_state().await;
-        let categories = match data.guild(guild_id) {
+        match data.guild(guild_id) {
             Some(gs) => gs.all_categories(),
             None => crate::data::builtin_categories(),
-        };
-        resolve_category(&categories, category.as_deref())?
+        }
     };
 
-    // Assign names (without-replacement draw, holding write lock briefly)
-    let assignments: Vec<(serenity::Member, String)> = {
+    // In chaos mode we draw a fresh category per member; otherwise resolve one.
+    let resolved = if chaos {
+        None
+    } else {
+        match resolve_category(&categories, category.as_deref()) {
+            Ok(pair) => Some(pair),
+            Err(e) => {
+                ctx.say(e.to_string()).await?;
+                return Ok(());
+            }
+        }
+    };
+
+    let scope_label = match &resolved {
+        Some((name, _)) => format!("the **{}** category", name),
+        None => "**random categories** (full chaos)".to_string(),
+    };
+
+    // ── Confirmation step ─────────────────────────────────────────────────────
+    let confirm_id = format!("cnn-confirm-{}", ctx.id());
+    let cancel_id = format!("cnn-cancel-{}", ctx.id());
+    let prompt = ctx
+        .send(
+            poise::CreateReply::default()
+                .content(format!(
+                    "⚠️ This will rename **{}** member(s) using {}.\nThis cannot be \
+                     automatically undone except via `/restore`. Proceed?",
+                    member_count, scope_label
+                ))
+                .components(vec![serenity::CreateActionRow::Buttons(vec![
+                    serenity::CreateButton::new(&confirm_id)
+                        .label("Randomize everyone")
+                        .style(serenity::ButtonStyle::Danger),
+                    serenity::CreateButton::new(&cancel_id)
+                        .label("Cancel")
+                        .style(serenity::ButtonStyle::Secondary),
+                ])]),
+        )
+        .await?;
+
+    let interaction = serenity::ComponentInteractionCollector::new(ctx)
+        .author_id(ctx.author().id)
+        .message_id(prompt.message().await?.id)
+        .timeout(Duration::from_secs(60))
+        .await;
+
+    let confirmed = match interaction {
+        Some(mci) if mci.data.custom_id == confirm_id => {
+            mci.create_response(ctx.serenity_context(), serenity::CreateInteractionResponse::Acknowledge)
+                .await?;
+            true
+        }
+        Some(mci) => {
+            mci.create_response(ctx.serenity_context(), serenity::CreateInteractionResponse::Acknowledge)
+                .await?;
+            false
+        }
+        None => false,
+    };
+
+    if !confirmed {
+        prompt
+            .edit(
+                ctx,
+                poise::CreateReply::default()
+                    .content("❌ Randomize cancelled.")
+                    .components(vec![]),
+            )
+            .await?;
+        return Ok(());
+    }
+
+    // ── Assign names (without-replacement draw, holding write lock briefly) ────
+    // Each tuple is (member, new_nick, category_used).
+    let assignments: Vec<(serenity::Member, String, String)> = {
         let mut data = ctx.data().write_state().await;
         let gs = data.guild_mut(guild_id);
         members
             .iter()
             .filter(|m| !m.user.bot)
-            .filter_map(|m| gs.pick_name(&cat_name, &names).map(|n| (m.clone(), n)))
+            .filter_map(|m| {
+                let (cat, names) = match &resolved {
+                    Some((c, n)) => (c.clone(), n.clone()),
+                    None => {
+                        use rand::seq::IteratorRandom;
+                        let mut rng = rand::thread_rng();
+                        let (k, v) = categories.iter().choose(&mut rng)?;
+                        (k.clone(), v.clone())
+                    }
+                };
+                gs.pick_name(&cat, &names).map(|n| (m.clone(), n, cat))
+            })
             .collect()
     };
 
     // Persist the pool updates to DB (best-effort, outside the lock)
-    for (_, name) in &assignments {
-        if let Err(e) = crate::db::add_used_name(&ctx.data().db, guild_id, &cat_name, name).await {
+    for (_, name, cat) in &assignments {
+        if let Err(e) = crate::db::add_used_name(&ctx.data().db, guild_id, cat, name).await {
             tracing::warn!("DB error persisting used_name: {:?}", e);
         }
     }
@@ -57,13 +152,17 @@ pub async fn randomize(
     let channel_id = ctx.channel_id();
     let bot_data = ctx.data().clone();
 
-    // Acknowledge the interaction immediately so the 15-minute follow-up window
-    // is not at risk even for very large guilds.
-    ctx.say(format!(
-        "🎲 Randomizing **{}** member(s) from the **{}** category — this may take a moment…",
-        total, cat_name
-    ))
-    .await?;
+    prompt
+        .edit(
+            ctx,
+            poise::CreateReply::default()
+                .content(format!(
+                    "🎲 Randomizing **{}** member(s) using {} — this may take a moment…",
+                    total, scope_label
+                ))
+                .components(vec![]),
+        )
+        .await?;
 
     // Apply edits in the background; Serenity's built-in rate-limit handling
     // manages pacing automatically, removing the need for a fixed sleep.
@@ -71,7 +170,7 @@ pub async fn randomize(
         let mut changed = 0u32;
         let mut errors = 0u32;
 
-        for (member, new_nick) in &assignments {
+        for (member, new_nick, cat_name) in &assignments {
             let nick = truncate_nick(new_nick);
             match guild_id
                 .edit_member(&http, member.user.id, serenity::EditMember::new().nickname(nick))
@@ -79,7 +178,7 @@ pub async fn randomize(
             {
                 Ok(_) => {
                     changed += 1;
-                    let (total_ch, bulk_ct) = {
+                    {
                         let mut data = bot_data.write_state().await;
                         data.guild_mut(guild_id).record_change(
                             member.user.id.get(),
@@ -88,10 +187,8 @@ pub async fn randomize(
                             new_nick.clone(),
                             cat_name.clone(),
                         );
-                        let gs = data.guild(guild_id).unwrap();
-                        (gs.stats.total_changes, gs.stats.bulk_randomize_count)
-                    };
-                    // Persist to DB (best-effort)
+                    }
+                    // Persist this change (best-effort)
                     let db = bot_data.db.clone();
                     let gid = guild_id;
                     let nn = new_nick.clone();
@@ -101,7 +198,6 @@ pub async fn randomize(
                     let uid = member.user.id.get();
                     tokio::spawn(async move {
                         let _ = crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
-                        let _ = crate::db::upsert_guild_stats(&db, gid, total_ch, bulk_ct).await;
                         let _ = crate::db::increment_category_usage(&db, gid, &cn).await;
                     });
                 }
@@ -117,12 +213,17 @@ pub async fn randomize(
             }
         }
 
-        {
+        // Increment the bulk-run counter, then persist the final aggregate
+        // stats exactly once (this also fixes bulk_randomize_count never
+        // reaching the database).
+        let (total_ch, bulk_ct) = {
             let mut data = bot_data.write_state().await;
-            data.guild_mut(guild_id).stats.bulk_randomize_count += 1;
-        }
+            let gs = data.guild_mut(guild_id);
+            gs.stats.bulk_randomize_count += 1;
+            (gs.stats.total_changes, gs.stats.bulk_randomize_count)
+        };
+        let _ = crate::db::upsert_guild_stats(&bot_data.db, guild_id, total_ch, bulk_ct).await;
 
-        // Send a follow-up message with the final tally.
         tracing::info!(
             guild = %guild_id,
             changed,
@@ -134,7 +235,12 @@ pub async fn randomize(
             changed, errors
         );
         if let Err(e) = channel_id
-            .send_message(&http, serenity::CreateMessage::new().content(summary))
+            .send_message(
+                &http,
+                serenity::CreateMessage::new()
+                    .content(summary)
+                    .allowed_mentions(serenity::CreateAllowedMentions::new()),
+            )
             .await
         {
             tracing::warn!("Failed to send randomize summary to channel {}: {:?}", channel_id, e);
@@ -213,6 +319,40 @@ pub fn escape_mentions(s: &str) -> String {
     s.replace('@', "@\u{200b}")
 }
 
+/// Friendly, actionable message shown when the bot cannot edit a member's
+/// nickname (almost always role hierarchy / ownership / missing permission).
+pub fn nick_edit_failure_message(user_name: &str) -> String {
+    format!(
+        "❌ Couldn't change **{}**'s nickname. This usually means they have a \
+         role higher than mine, they're the server owner, or I'm missing the \
+         **Manage Nicknames** permission.",
+        escape_mentions(user_name)
+    )
+}
+
+/// Autocomplete handler for the `category` option of several commands.
+/// Includes this guild's custom categories alongside the built-ins.
+pub async fn autocomplete_category(
+    ctx: Context<'_>,
+    partial: &str,
+) -> impl Iterator<Item = String> {
+    let partial = partial.to_lowercase();
+    let mut names: Vec<String> = if let Some(gid) = ctx.guild_id() {
+        let data = ctx.data().read_state().await;
+        match data.guild(gid) {
+            Some(gs) => gs.all_categories().into_keys().collect(),
+            None => crate::data::builtin_category_names(),
+        }
+    } else {
+        crate::data::builtin_category_names()
+    };
+    names.sort();
+    names
+        .into_iter()
+        .filter(move |c| c.starts_with(&partial))
+        .take(25)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,6 +386,12 @@ mod tests {
         assert_eq!(result.chars().count(), 32);
     }
 
+    #[test]
+    fn truncate_nick_one_over_limit() {
+        let s = "x".repeat(33);
+        assert_eq!(truncate_nick(&s).chars().count(), 32);
+    }
+
     // ── escape_mentions ───────────────────────────────────────────────────────
 
     #[test]
@@ -265,6 +411,27 @@ mod tests {
     fn escape_mentions_multiple_at_signs() {
         let result = escape_mentions("@a @b");
         assert_eq!(result.matches('\u{200b}').count(), 2);
+    }
+
+    #[test]
+    fn escape_mentions_neutralizes_here() {
+        // @here must not survive intact as a working ping.
+        assert!(!escape_mentions("@here").contains("@h"));
+    }
+
+    // ── nick_edit_failure_message ─────────────────────────────────────────────
+
+    #[test]
+    fn failure_message_mentions_user_and_guidance() {
+        let m = nick_edit_failure_message("Alice");
+        assert!(m.contains("Alice"));
+        assert!(m.contains("Manage Nicknames"));
+    }
+
+    #[test]
+    fn failure_message_escapes_at_in_username() {
+        let m = nick_edit_failure_message("@everyone");
+        assert!(m.contains('\u{200b}'));
     }
 
     // ── resolve_category ──────────────────────────────────────────────────────
@@ -291,10 +458,25 @@ mod tests {
     }
 
     #[test]
+    fn resolve_category_is_case_insensitive() {
+        let cats = sample_categories();
+        let (name, _) = resolve_category(&cats, Some("SCIENTISTS")).unwrap();
+        assert_eq!(name, "scientists");
+    }
+
+    #[test]
     fn resolve_category_unknown_name_returns_error() {
         let cats = sample_categories();
         let result = resolve_category(&cats, Some("dinosaurs"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_category_unknown_name_lists_available() {
+        let cats = sample_categories();
+        let err = resolve_category(&cats, Some("nope")).unwrap_err().to_string();
+        assert!(err.contains("scientists"));
+        assert!(err.contains("planets"));
     }
 
     #[test]
