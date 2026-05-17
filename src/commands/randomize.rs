@@ -147,8 +147,11 @@ pub async fn randomize(
 
         let mut data = ctx.data().write_state().await;
         let gs = data.guild_mut(guild_id);
-        // Created after the lock is held and never kept across an `.await`
-        // (ThreadRng is !Send); the closure below contains no await points.
+        // `rand::rng()` returns `ThreadRng`, which is still `!Send`/`!Sync` as
+        // of rand 0.10 (it wraps `Rc<UnsafeCell<..>>`). It is created after the
+        // lock and dropped when this block ends, so it never lives across an
+        // `.await` — that is what keeps this command future `Send` (poise boxes
+        // and spawns it). The closure below contains no await points.
         use rand::seq::IndexedRandom;
         let mut rng = rand::rng();
         members
