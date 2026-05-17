@@ -24,7 +24,7 @@ pub async fn stats(ctx: Context<'_>) -> Result<(), Error> {
                     .iter()
                     .map(|(k, v)| (k.clone(), *v))
                     .collect();
-                cats.sort_by(|a, b| b.1.cmp(&a.1));
+                cats.sort_by_key(|x| std::cmp::Reverse(x.1));
                 (gs.stats.total_changes, gs.stats.bulk_randomize_count, cats)
             }
         }
