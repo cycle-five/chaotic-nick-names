@@ -4,6 +4,7 @@ pub mod history;
 pub mod nick;
 pub mod randomize;
 pub mod reset;
+pub mod restore;
 pub mod stats;
 
 use crate::{Data, Error};
@@ -17,6 +18,7 @@ pub fn all_commands() -> Vec<poise::Command<Data, Error>> {
         stats::stats(),
         history::history(),
         reset::reset_pool(),
+        restore::restore(),
         context_menu::assign_random_nick(),
     ]
 }

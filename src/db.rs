@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use poise::serenity_prelude::GuildId;
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 
 use crate::state::{GuildState, GuildStats, HistoryEntry};
 
@@ -24,11 +24,9 @@ pub async fn setup(database_url: &str) -> Result<PgPool, sqlx::Error> {
 // ── Startup load ─────────────────────────────────────────────────────────────
 
 /// Load all guild states that exist in the database.
-pub async fn load_all_guilds(
-    pool: &PgPool,
-) -> Result<Vec<(GuildId, GuildState)>, sqlx::Error> {
+pub async fn load_all_guilds(pool: &PgPool) -> Result<Vec<(GuildId, GuildState)>, sqlx::Error> {
     let guild_ids: Vec<i64> = sqlx::query_scalar(
-        r#"
+        r"
         SELECT DISTINCT guild_id FROM (
             SELECT guild_id FROM guild_stats
             UNION
@@ -38,7 +36,7 @@ pub async fn load_all_guilds(
             UNION
             SELECT guild_id FROM nick_changes
         ) AS g
-        "#,
+        ",
     )
     .fetch_all(pool)
     .await?;
@@ -56,12 +54,10 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
     let gid = guild_id.get() as i64;
 
     // Custom categories
-    let cat_rows = sqlx::query(
-        "SELECT name, items FROM custom_categories WHERE guild_id = $1",
-    )
-    .bind(gid)
-    .fetch_all(pool)
-    .await?;
+    let cat_rows = sqlx::query("SELECT name, items FROM custom_categories WHERE guild_id = $1")
+        .bind(gid)
+        .fetch_all(pool)
+        .await?;
 
     let mut custom_categories: HashMap<String, Vec<String>> = HashMap::new();
     for row in cat_rows {
@@ -71,12 +67,10 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
     }
 
     // Used names
-    let used_rows = sqlx::query(
-        "SELECT category_name, name FROM used_names WHERE guild_id = $1",
-    )
-    .bind(gid)
-    .fetch_all(pool)
-    .await?;
+    let used_rows = sqlx::query("SELECT category_name, name FROM used_names WHERE guild_id = $1")
+        .bind(gid)
+        .fetch_all(pool)
+        .await?;
 
     let mut used_names: HashMap<String, HashSet<String>> = HashMap::new();
     for row in used_rows {
@@ -87,13 +81,13 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
 
     // History (latest 200)
     let hist_rows = sqlx::query(
-        r#"
+        r"
         SELECT user_id, user_name, old_nick, new_nick, category, changed_at
         FROM nick_changes
         WHERE guild_id = $1
         ORDER BY changed_at DESC
         LIMIT 200
-        "#,
+        ",
     )
     .bind(gid)
     .fetch_all(pool)
@@ -131,12 +125,11 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
     };
 
     // Category usage
-    let usage_rows = sqlx::query(
-        "SELECT category_name, usage_count FROM category_usage WHERE guild_id = $1",
-    )
-    .bind(gid)
-    .fetch_all(pool)
-    .await?;
+    let usage_rows =
+        sqlx::query("SELECT category_name, usage_count FROM category_usage WHERE guild_id = $1")
+            .bind(gid)
+            .fetch_all(pool)
+            .await?;
 
     let mut category_usage: HashMap<String, u64> = HashMap::new();
     for row in usage_rows {
@@ -151,8 +144,8 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
         history,
         stats: GuildStats {
             total_changes,
-            bulk_randomize_count,
             category_usage,
+            bulk_randomize_count,
         },
     })
 }
@@ -168,11 +161,11 @@ pub async fn upsert_custom_category(
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO custom_categories (guild_id, name, items)
         VALUES ($1, $2, $3)
         ON CONFLICT (guild_id, name) DO UPDATE SET items = EXCLUDED.items
-        "#,
+        ",
     )
     .bind(gid)
     .bind(name)
@@ -189,13 +182,11 @@ pub async fn delete_custom_category(
     name: &str,
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
-    sqlx::query(
-        "DELETE FROM custom_categories WHERE guild_id = $1 AND name = $2",
-    )
-    .bind(gid)
-    .bind(name)
-    .execute(pool)
-    .await?;
+    sqlx::query("DELETE FROM custom_categories WHERE guild_id = $1 AND name = $2")
+        .bind(gid)
+        .bind(name)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -208,15 +199,113 @@ pub async fn add_used_name(
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO used_names (guild_id, category_name, name)
         VALUES ($1, $2, $3)
         ON CONFLICT DO NOTHING
-        "#,
+        ",
     )
     .bind(gid)
     .bind(category)
     .bind(name)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Bulk-mark many `(category, name)` pairs as used in a single round trip.
+pub async fn add_used_names_bulk(
+    pool: &PgPool,
+    guild_id: GuildId,
+    pairs: &[(String, String)],
+) -> Result<(), sqlx::Error> {
+    if pairs.is_empty() {
+        return Ok(());
+    }
+    let gid = guild_id.get() as i64;
+    let cats: Vec<String> = pairs.iter().map(|(c, _)| c.clone()).collect();
+    let names: Vec<String> = pairs.iter().map(|(_, n)| n.clone()).collect();
+    sqlx::query(
+        r"
+        INSERT INTO used_names (guild_id, category_name, name)
+        SELECT $1, c, n FROM UNNEST($2::text[], $3::text[]) AS t(c, n)
+        ON CONFLICT DO NOTHING
+        ",
+    )
+    .bind(gid)
+    .bind(&cats)
+    .bind(&names)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// One recorded nickname change, used for bulk persistence.
+pub struct NickChangeRecord {
+    pub user_id: u64,
+    pub user_name: String,
+    pub old_nick: Option<String>,
+    pub new_nick: String,
+    pub category: String,
+}
+
+/// Bulk-insert many nick-change rows in a single round trip.
+pub async fn insert_nick_changes_bulk(
+    pool: &PgPool,
+    guild_id: GuildId,
+    rows: &[NickChangeRecord],
+) -> Result<(), sqlx::Error> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let gid = guild_id.get() as i64;
+    let uids: Vec<i64> = rows.iter().map(|r| r.user_id as i64).collect();
+    let unames: Vec<String> = rows.iter().map(|r| r.user_name.clone()).collect();
+    let olds: Vec<Option<String>> = rows.iter().map(|r| r.old_nick.clone()).collect();
+    let news: Vec<String> = rows.iter().map(|r| r.new_nick.clone()).collect();
+    let cats: Vec<String> = rows.iter().map(|r| r.category.clone()).collect();
+    sqlx::query(
+        r"
+        INSERT INTO nick_changes (guild_id, user_id, user_name, old_nick, new_nick, category)
+        SELECT $1, uid, un, old, nn, cat
+        FROM UNNEST($2::bigint[], $3::text[], $4::text[], $5::text[], $6::text[])
+            AS t(uid, un, old, nn, cat)
+        ",
+    )
+    .bind(gid)
+    .bind(&uids)
+    .bind(&unames)
+    .bind(&olds)
+    .bind(&news)
+    .bind(&cats)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Bulk-increment category usage counters from a `(category, delta)` list.
+pub async fn increment_category_usage_bulk(
+    pool: &PgPool,
+    guild_id: GuildId,
+    counts: &[(String, i64)],
+) -> Result<(), sqlx::Error> {
+    if counts.is_empty() {
+        return Ok(());
+    }
+    let gid = guild_id.get() as i64;
+    let cats: Vec<String> = counts.iter().map(|(c, _)| c.clone()).collect();
+    let deltas: Vec<i64> = counts.iter().map(|(_, n)| *n).collect();
+    sqlx::query(
+        r"
+        INSERT INTO category_usage (guild_id, category_name, usage_count)
+        SELECT $1, c, n FROM UNNEST($2::text[], $3::bigint[]) AS t(c, n)
+        ON CONFLICT (guild_id, category_name) DO UPDATE
+            SET usage_count = category_usage.usage_count + EXCLUDED.usage_count
+        ",
+    )
+    .bind(gid)
+    .bind(&cats)
+    .bind(&deltas)
     .execute(pool)
     .await?;
     Ok(())
@@ -231,13 +320,11 @@ pub async fn clear_used_names(
     let gid = guild_id.get() as i64;
     match category {
         Some(cat) => {
-            sqlx::query(
-                "DELETE FROM used_names WHERE guild_id = $1 AND category_name = $2",
-            )
-            .bind(gid)
-            .bind(cat)
-            .execute(pool)
-            .await?;
+            sqlx::query("DELETE FROM used_names WHERE guild_id = $1 AND category_name = $2")
+                .bind(gid)
+                .bind(cat)
+                .execute(pool)
+                .await?;
         }
         None => {
             sqlx::query("DELETE FROM used_names WHERE guild_id = $1")
@@ -247,6 +334,57 @@ pub async fn clear_used_names(
         }
     }
     Ok(())
+}
+
+/// Return each user's *original* nickname for this guild — the `old_nick`
+/// recorded on the earliest nick-change row for that user. `None` means the
+/// user had no nickname before the bot first touched them (so restoring
+/// should clear their nickname). Used by `/restore`.
+pub async fn original_nicks(
+    pool: &PgPool,
+    guild_id: GuildId,
+    user_id: Option<u64>,
+) -> Result<Vec<(u64, Option<String>)>, sqlx::Error> {
+    let gid = guild_id.get() as i64;
+    let rows = match user_id {
+        Some(uid) => {
+            sqlx::query(
+                r"
+                SELECT DISTINCT ON (user_id) user_id, old_nick
+                FROM nick_changes
+                WHERE guild_id = $1 AND user_id = $2
+                ORDER BY user_id, changed_at ASC
+                ",
+            )
+            .bind(gid)
+            .bind(uid as i64)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query(
+                r"
+                SELECT DISTINCT ON (user_id) user_id, old_nick
+                FROM nick_changes
+                WHERE guild_id = $1
+                ORDER BY user_id, changed_at ASC
+                ",
+            )
+            .bind(gid)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.get::<i64, _>("user_id") as u64,
+                r.get::<Option<String>, _>("old_nick"),
+            )
+        })
+        .collect())
 }
 
 /// Insert a single nick-change row.
@@ -262,10 +400,10 @@ pub async fn insert_nick_change(
     let gid = guild_id.get() as i64;
     let uid = user_id as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO nick_changes (guild_id, user_id, user_name, old_nick, new_nick, category)
         VALUES ($1, $2, $3, $4, $5, $6)
-        "#,
+        ",
     )
     .bind(gid)
     .bind(uid)
@@ -287,13 +425,13 @@ pub async fn upsert_guild_stats(
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO guild_stats (guild_id, total_changes, bulk_randomize_count)
         VALUES ($1, $2, $3)
         ON CONFLICT (guild_id) DO UPDATE
             SET total_changes        = EXCLUDED.total_changes,
                 bulk_randomize_count = EXCLUDED.bulk_randomize_count
-        "#,
+        ",
     )
     .bind(gid)
     .bind(total_changes as i64)
@@ -311,12 +449,12 @@ pub async fn increment_category_usage(
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO category_usage (guild_id, category_name, usage_count)
         VALUES ($1, $2, 1)
         ON CONFLICT (guild_id, category_name) DO UPDATE
             SET usage_count = category_usage.usage_count + 1
-        "#,
+        ",
     )
     .bind(gid)
     .bind(category)

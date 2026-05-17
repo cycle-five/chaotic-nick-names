@@ -71,8 +71,7 @@ async fn main() {
     });
 
     // GUILD_MEMBERS is a privileged intent — enable it in the Discord developer portal
-    let intents =
-        serenity::GatewayIntents::GUILDS | serenity::GatewayIntents::GUILD_MEMBERS;
+    let intents = serenity::GatewayIntents::GUILDS | serenity::GatewayIntents::GUILD_MEMBERS;
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {

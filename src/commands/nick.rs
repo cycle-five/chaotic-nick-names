@@ -1,6 +1,8 @@
 use poise::serenity_prelude as serenity;
 
-use crate::commands::randomize::{escape_mentions, resolve_category, truncate_nick};
+use crate::commands::randomize::{
+    escape_mentions, nick_edit_failure_message, resolve_category, truncate_nick,
+};
 use crate::{Context, Error};
 
 /// Assign a random (or specific) nickname to a specific user.
@@ -16,10 +18,13 @@ pub async fn nick(
     ctx: Context<'_>,
     #[description = "The user to rename"] user: serenity::User,
     #[description = "Category to pick a name from (omit for a random category)"]
+    #[autocomplete = "crate::commands::randomize::autocomplete_category"]
     category: Option<String>,
     #[description = "A specific name to assign (omit to pick randomly from the category)"]
     specific_name: Option<String>,
 ) -> Result<(), Error> {
+    ctx.defer().await?;
+
     let guild_id = ctx.guild_id().unwrap();
     let http = ctx.serenity_context().http.clone();
 
@@ -52,7 +57,7 @@ pub async fn nick(
         match result {
             Ok(n) => n,
             Err(e) => {
-                ctx.say(format!("❌ {}", e)).await?;
+                ctx.say(format!("❌ {e}")).await?;
                 return Ok(());
             }
         }
@@ -66,9 +71,19 @@ pub async fn nick(
     let nick = truncate_nick(&new_nick).to_string();
     let old_nick = member.nick.clone();
 
-    guild_id
+    if let Err(e) = guild_id
         .edit_member(&http, user.id, serenity::EditMember::new().nickname(&nick))
-        .await?;
+        .await
+    {
+        tracing::warn!(
+            "nick edit failed for {} in {}: {:?}",
+            user.name,
+            guild_id,
+            e
+        );
+        ctx.say(nick_edit_failure_message(&user.name)).await?;
+        return Ok(());
+    }
 
     let (total_ch, bulk_ct) = {
         let mut data = ctx.data().write_state().await;
@@ -94,7 +109,8 @@ pub async fn nick(
         let cn = cat_name.clone();
         tokio::spawn(async move {
             let _ = crate::db::add_used_name(&db, gid, &cn, &nn).await;
-            let _ = crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
+            let _ =
+                crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
             let _ = crate::db::upsert_guild_stats(&db, gid, total_ch, bulk_ct).await;
             let _ = crate::db::increment_category_usage(&db, gid, &cn).await;
         });

@@ -28,7 +28,7 @@ impl AppState {
     }
 
     pub fn guild_mut(&mut self, guild_id: GuildId) -> &mut GuildState {
-        self.guilds.entry(guild_id).or_insert_with(GuildState::new)
+        self.guilds.entry(guild_id).or_default()
     }
 }
 
@@ -89,7 +89,7 @@ impl GuildState {
 
         use rand::seq::SliceRandom;
         let mut rng = rand::thread_rng();
-        let picked = available.choose(&mut rng)?.to_string();
+        let picked = (*available.choose(&mut rng)?).clone();
 
         self.used_names
             .entry(category.to_string())
@@ -101,12 +101,14 @@ impl GuildState {
 
     /// Use a specific name from `category`, marking it as used.
     /// Returns an error string if the name is not in `all_names`.
-    pub fn use_specific_name(&mut self, category: &str, name: &str, all_names: &[String]) -> Result<String, String> {
+    pub fn use_specific_name(
+        &mut self,
+        category: &str,
+        name: &str,
+        all_names: &[String],
+    ) -> Result<String, String> {
         if !all_names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
-            return Err(format!(
-                "**{}** is not in the **{}** category.",
-                name, category
-            ));
+            return Err(format!("**{name}** is not in the **{category}** category."));
         }
         // Find the canonical casing
         let canonical = all_names
@@ -225,7 +227,10 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for _ in 0..list.len() {
             let picked = gs.pick_name("test", &list).unwrap();
-            assert!(!seen.contains(&picked), "duplicate pick before pool exhausted");
+            assert!(
+                !seen.contains(&picked),
+                "duplicate pick before pool exhausted"
+            );
             seen.insert(picked);
         }
         assert_eq!(seen.len(), 3);
@@ -293,7 +298,8 @@ mod tests {
     #[test]
     fn remove_custom_category_returns_true_when_present() {
         let mut gs = GuildState::new();
-        gs.custom_categories.insert("mycat".to_string(), vec!["A".to_string()]);
+        gs.custom_categories
+            .insert("mycat".to_string(), vec!["A".to_string()]);
         assert!(gs.remove_custom_category("mycat"));
     }
 
@@ -307,7 +313,8 @@ mod tests {
     fn remove_custom_category_cleans_up_used_names() {
         let mut gs = GuildState::new();
         let list = names(&["A", "B"]);
-        gs.custom_categories.insert("mycat".to_string(), list.clone());
+        gs.custom_categories
+            .insert("mycat".to_string(), list.clone());
         gs.pick_name("mycat", &list);
         assert!(gs.used_names.contains_key("mycat"));
         gs.remove_custom_category("mycat");
@@ -317,8 +324,15 @@ mod tests {
     #[test]
     fn remove_custom_category_cleans_up_stats() {
         let mut gs = GuildState::new();
-        gs.custom_categories.insert("mycat".to_string(), vec!["A".to_string()]);
-        gs.record_change(1, "user".to_string(), None, "A".to_string(), "mycat".to_string());
+        gs.custom_categories
+            .insert("mycat".to_string(), vec!["A".to_string()]);
+        gs.record_change(
+            1,
+            "user".to_string(),
+            None,
+            "A".to_string(),
+            "mycat".to_string(),
+        );
         assert!(gs.stats.category_usage.contains_key("mycat"));
         gs.remove_custom_category("mycat");
         assert!(!gs.stats.category_usage.contains_key("mycat"));
@@ -328,8 +342,10 @@ mod tests {
     fn remove_custom_category_does_not_affect_other_categories() {
         let mut gs = GuildState::new();
         let list = names(&["X"]);
-        gs.custom_categories.insert("cat_a".to_string(), list.clone());
-        gs.custom_categories.insert("cat_b".to_string(), list.clone());
+        gs.custom_categories
+            .insert("cat_a".to_string(), list.clone());
+        gs.custom_categories
+            .insert("cat_b".to_string(), list.clone());
         gs.pick_name("cat_b", &list);
         gs.remove_custom_category("cat_a");
         assert!(gs.custom_categories.contains_key("cat_b"));
@@ -400,15 +416,33 @@ mod tests {
     #[test]
     fn record_change_increments_total_changes() {
         let mut gs = GuildState::new();
-        gs.record_change(1, "alice".to_string(), None, "Newton".to_string(), "scientists".to_string());
+        gs.record_change(
+            1,
+            "alice".to_string(),
+            None,
+            "Newton".to_string(),
+            "scientists".to_string(),
+        );
         assert_eq!(gs.stats.total_changes, 1);
     }
 
     #[test]
     fn record_change_increments_category_usage() {
         let mut gs = GuildState::new();
-        gs.record_change(1, "alice".to_string(), None, "Newton".to_string(), "scientists".to_string());
-        gs.record_change(2, "bob".to_string(), None, "Einstein".to_string(), "scientists".to_string());
+        gs.record_change(
+            1,
+            "alice".to_string(),
+            None,
+            "Newton".to_string(),
+            "scientists".to_string(),
+        );
+        gs.record_change(
+            2,
+            "bob".to_string(),
+            None,
+            "Einstein".to_string(),
+            "scientists".to_string(),
+        );
         assert_eq!(gs.stats.category_usage["scientists"], 2);
     }
 

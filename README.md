@@ -17,7 +17,10 @@ categories, and name-pool state survive bot restarts.
 | Feature | Details |
 |---------|---------|
 | **Slash commands** | Registered globally; work in every server the bot joins |
-| **Randomize everyone** | `/randomize` renames every non-bot member in the server |
+| **Randomize everyone** | `/randomize` renames every non-bot member (behind a confirmation button) |
+| **Full chaos mode** | `/randomize chaos:true` gives every member a name from a *different* random category |
+| **Undo** | `/restore [user]` puts members back to their pre-bot nickname |
+| **Category autocomplete** | The `category` option autocompletes built-in **and** custom categories |
 | **Rename one user** | `/nick @user [category] [specific_name]` renames a single member |
 | **Context-menu command** | Right-click any user → *Assign Random Nick* (modal lets you pick category and/or a specific name) |
 | **Without-replacement draws** | The full pool is exhausted before any name repeats |
@@ -32,9 +35,18 @@ categories, and name-pool state survive bot restarts.
 
 ## Slash commands
 
-### `/randomize [category]`
+### `/randomize [category] [chaos]`
 Assigns a random nickname from `category` to every non-bot member.  
 If `category` is omitted, a random category is chosen.  
+- `chaos` — when `true`, every member gets a name from a *different* random category (the `category` argument is ignored).  
+A confirmation button is shown before any member is renamed.  
+**Requires:** Manage Nicknames permission.
+
+### `/restore [user]`
+Restores members to the nickname they had **before** the bot first changed it
+(read from recorded history).  Omit `user` to restore everyone the bot has
+renamed; pass a `user` to restore just that person.  This is the undo for
+`/randomize`.  
 **Requires:** Manage Nicknames permission.
 
 ### `/nick <user> [category] [specific_name]`
@@ -101,6 +113,11 @@ A modal lets you optionally specify:
 | `planets` | Mercury, Saturn, Pluto… |
 | `colors` | Crimson, Cerulean, Chartreuse… |
 | `fruits` | Dragonfruit, Persimmon, Kumquat… |
+
+The built-in lists live in [`src/categories.json`](src/categories.json) and are
+embedded into the binary at compile time — edit that file and rebuild to change
+them (no database or runtime file needed). Custom categories remain fully
+runtime-managed via `/categories`.
 
 ---
 
