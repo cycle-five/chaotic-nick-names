@@ -22,12 +22,7 @@ pub async fn history(
                     .await?;
                 return Ok(());
             }
-            Some(gs) => gs
-                .history
-                .iter()
-                .take(limit)
-                .cloned()
-                .collect::<Vec<_>>(),
+            Some(gs) => gs.history.iter().take(limit).cloned().collect::<Vec<_>>(),
         }
     };
 

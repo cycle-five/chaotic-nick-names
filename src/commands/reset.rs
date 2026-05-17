@@ -33,7 +33,8 @@ pub async fn reset_pool(
             }
         };
         if !known {
-            ctx.say(format!("❌ No category named `{}` exists.", c)).await?;
+            ctx.say(format!("❌ No category named `{}` exists.", c))
+                .await?;
             return Ok(());
         }
     }
@@ -59,7 +60,10 @@ pub async fn reset_pool(
             ctx.say(format!("🔄 Reset name pool for category **{}**.", c))
                 .await?
         }
-        None => ctx.say("🔄 Reset name pools for **all** categories.").await?,
+        None => {
+            ctx.say("🔄 Reset name pools for **all** categories.")
+                .await?
+        }
     };
 
     Ok(())

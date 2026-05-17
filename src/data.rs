@@ -64,7 +64,11 @@ mod tests {
     fn known_categories_are_present() {
         let cats = builtin_categories();
         for expected in &["scientists", "elements", "planets", "colors"] {
-            assert!(cats.contains_key(*expected), "missing category '{}'", expected);
+            assert!(
+                cats.contains_key(*expected),
+                "missing category '{}'",
+                expected
+            );
         }
     }
 
@@ -80,7 +84,13 @@ mod tests {
     fn no_name_has_leading_or_trailing_whitespace() {
         for (cat, names) in builtin_categories() {
             for n in &names {
-                assert_eq!(n.trim(), n, "name '{}' in '{}' has surrounding whitespace", n, cat);
+                assert_eq!(
+                    n.trim(),
+                    n,
+                    "name '{}' in '{}' has surrounding whitespace",
+                    n,
+                    cat
+                );
                 assert!(!n.is_empty(), "empty name in category '{}'", cat);
             }
         }
@@ -91,7 +101,12 @@ mod tests {
         for (cat, names) in builtin_categories() {
             let mut seen = std::collections::HashSet::new();
             for n in &names {
-                assert!(seen.insert(n.clone()), "duplicate '{}' in category '{}'", n, cat);
+                assert!(
+                    seen.insert(n.clone()),
+                    "duplicate '{}' in category '{}'",
+                    n,
+                    cat
+                );
             }
         }
     }
@@ -114,6 +129,9 @@ mod tests {
     fn cache_returns_stable_reference() {
         let a = categories() as *const _;
         let b = categories() as *const _;
-        assert_eq!(a, b, "categories() should cache and return the same instance");
+        assert_eq!(
+            a, b,
+            "categories() should cache and return the same instance"
+        );
     }
 }

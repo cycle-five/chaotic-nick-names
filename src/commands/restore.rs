@@ -16,16 +16,18 @@ use crate::{Context, Error};
 )]
 pub async fn restore(
     ctx: Context<'_>,
-    #[description = "Restore only this user (omit to restore everyone)"]
-    user: Option<serenity::User>,
+    #[description = "Restore only this user (omit to restore everyone)"] user: Option<
+        serenity::User,
+    >,
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
     let guild_id = ctx.guild_id().unwrap();
     let http = ctx.serenity_context().http.clone();
 
-    let targets = crate::db::original_nicks(&ctx.data().db, guild_id, user.as_ref().map(|u| u.id.get()))
-        .await?;
+    let targets =
+        crate::db::original_nicks(&ctx.data().db, guild_id, user.as_ref().map(|u| u.id.get()))
+            .await?;
 
     if targets.is_empty() {
         ctx.say("Nothing to restore — no recorded nickname history for that selection.")
@@ -60,7 +62,12 @@ pub async fn restore(
             {
                 Ok(_) => restored += 1,
                 Err(e) => {
-                    tracing::warn!("Could not restore nick for {} in {}: {:?}", uid, guild_id, e);
+                    tracing::warn!(
+                        "Could not restore nick for {} in {}: {:?}",
+                        uid,
+                        guild_id,
+                        e
+                    );
                     errors += 1;
                 }
             }
@@ -80,7 +87,11 @@ pub async fn restore(
             )
             .await
         {
-            tracing::warn!("Failed to send restore summary to channel {}: {:?}", channel_id, e);
+            tracing::warn!(
+                "Failed to send restore summary to channel {}: {:?}",
+                channel_id,
+                e
+            );
         }
     });
 

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use poise::serenity_prelude::GuildId;
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 
 use crate::state::{GuildState, GuildStats, HistoryEntry};
 
@@ -24,9 +24,7 @@ pub async fn setup(database_url: &str) -> Result<PgPool, sqlx::Error> {
 // ── Startup load ─────────────────────────────────────────────────────────────
 
 /// Load all guild states that exist in the database.
-pub async fn load_all_guilds(
-    pool: &PgPool,
-) -> Result<Vec<(GuildId, GuildState)>, sqlx::Error> {
+pub async fn load_all_guilds(pool: &PgPool) -> Result<Vec<(GuildId, GuildState)>, sqlx::Error> {
     let guild_ids: Vec<i64> = sqlx::query_scalar(
         r#"
         SELECT DISTINCT guild_id FROM (
@@ -56,12 +54,10 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
     let gid = guild_id.get() as i64;
 
     // Custom categories
-    let cat_rows = sqlx::query(
-        "SELECT name, items FROM custom_categories WHERE guild_id = $1",
-    )
-    .bind(gid)
-    .fetch_all(pool)
-    .await?;
+    let cat_rows = sqlx::query("SELECT name, items FROM custom_categories WHERE guild_id = $1")
+        .bind(gid)
+        .fetch_all(pool)
+        .await?;
 
     let mut custom_categories: HashMap<String, Vec<String>> = HashMap::new();
     for row in cat_rows {
@@ -71,12 +67,10 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
     }
 
     // Used names
-    let used_rows = sqlx::query(
-        "SELECT category_name, name FROM used_names WHERE guild_id = $1",
-    )
-    .bind(gid)
-    .fetch_all(pool)
-    .await?;
+    let used_rows = sqlx::query("SELECT category_name, name FROM used_names WHERE guild_id = $1")
+        .bind(gid)
+        .fetch_all(pool)
+        .await?;
 
     let mut used_names: HashMap<String, HashSet<String>> = HashMap::new();
     for row in used_rows {
@@ -131,12 +125,11 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
     };
 
     // Category usage
-    let usage_rows = sqlx::query(
-        "SELECT category_name, usage_count FROM category_usage WHERE guild_id = $1",
-    )
-    .bind(gid)
-    .fetch_all(pool)
-    .await?;
+    let usage_rows =
+        sqlx::query("SELECT category_name, usage_count FROM category_usage WHERE guild_id = $1")
+            .bind(gid)
+            .fetch_all(pool)
+            .await?;
 
     let mut category_usage: HashMap<String, u64> = HashMap::new();
     for row in usage_rows {
@@ -189,13 +182,11 @@ pub async fn delete_custom_category(
     name: &str,
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
-    sqlx::query(
-        "DELETE FROM custom_categories WHERE guild_id = $1 AND name = $2",
-    )
-    .bind(gid)
-    .bind(name)
-    .execute(pool)
-    .await?;
+    sqlx::query("DELETE FROM custom_categories WHERE guild_id = $1 AND name = $2")
+        .bind(gid)
+        .bind(name)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -329,13 +320,11 @@ pub async fn clear_used_names(
     let gid = guild_id.get() as i64;
     match category {
         Some(cat) => {
-            sqlx::query(
-                "DELETE FROM used_names WHERE guild_id = $1 AND category_name = $2",
-            )
-            .bind(gid)
-            .bind(cat)
-            .execute(pool)
-            .await?;
+            sqlx::query("DELETE FROM used_names WHERE guild_id = $1 AND category_name = $2")
+                .bind(gid)
+                .bind(cat)
+                .execute(pool)
+                .await?;
         }
         None => {
             sqlx::query("DELETE FROM used_names WHERE guild_id = $1")
@@ -389,7 +378,12 @@ pub async fn original_nicks(
 
     Ok(rows
         .into_iter()
-        .map(|r| (r.get::<i64, _>("user_id") as u64, r.get::<Option<String>, _>("old_nick")))
+        .map(|r| {
+            (
+                r.get::<i64, _>("user_id") as u64,
+                r.get::<Option<String>, _>("old_nick"),
+            )
+        })
         .collect())
 }
 

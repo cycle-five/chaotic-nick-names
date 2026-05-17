@@ -44,7 +44,11 @@ pub fn parse_category_csv(text: &str) -> (Vec<(String, Vec<String>)>, Vec<String
             .collect();
 
         if names.is_empty() {
-            errors.push(format!("Line {}: category `{}` has no names", line_no + 1, key));
+            errors.push(format!(
+                "Line {}: category `{}` has no names",
+                line_no + 1,
+                key
+            ));
             continue;
         }
 
@@ -245,8 +249,7 @@ pub async fn remove(
 )]
 pub async fn import(
     ctx: Context<'_>,
-    #[description = "CSV file (each row: category_name,name1,name2,…)"]
-    file: serenity::Attachment,
+    #[description = "CSV file (each row: category_name,name1,name2,…)"] file: serenity::Attachment,
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
@@ -257,8 +260,7 @@ pub async fn import(
     }
 
     let bytes = file.download().await?;
-    let text = String::from_utf8(bytes)
-        .map_err(|_| "❌ File is not valid UTF-8.")?;
+    let text = String::from_utf8(bytes).map_err(|_| "❌ File is not valid UTF-8.")?;
 
     let guild_id = ctx.guild_id().unwrap();
     let (parsed, errors) = parse_category_csv(&text);

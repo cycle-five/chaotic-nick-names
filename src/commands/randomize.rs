@@ -33,7 +33,8 @@ pub async fn randomize(
     let member_count = members.iter().filter(|m| !m.user.bot).count();
 
     if member_count == 0 {
-        ctx.say("There are no non-bot members to randomize.").await?;
+        ctx.say("There are no non-bot members to randomize.")
+            .await?;
         return Ok(());
     }
 
@@ -94,13 +95,19 @@ pub async fn randomize(
 
     let confirmed = match interaction {
         Some(mci) if mci.data.custom_id == confirm_id => {
-            mci.create_response(ctx.serenity_context(), serenity::CreateInteractionResponse::Acknowledge)
-                .await?;
+            mci.create_response(
+                ctx.serenity_context(),
+                serenity::CreateInteractionResponse::Acknowledge,
+            )
+            .await?;
             true
         }
         Some(mci) => {
-            mci.create_response(ctx.serenity_context(), serenity::CreateInteractionResponse::Acknowledge)
-                .await?;
+            mci.create_response(
+                ctx.serenity_context(),
+                serenity::CreateInteractionResponse::Acknowledge,
+            )
+            .await?;
             false
         }
         None => false,
@@ -277,7 +284,11 @@ pub async fn randomize(
             )
             .await
         {
-            tracing::warn!("Failed to send randomize summary to channel {}: {:?}", channel_id, e);
+            tracing::warn!(
+                "Failed to send randomize summary to channel {}: {:?}",
+                channel_id,
+                e
+            );
         }
     });
 
@@ -320,7 +331,10 @@ pub fn resolve_category(
         let available = {
             let mut keys: Vec<&String> = categories.keys().collect();
             keys.sort();
-            keys.iter().map(|k| format!("`{}`", k)).collect::<Vec<_>>().join(", ")
+            keys.iter()
+                .map(|k| format!("`{}`", k))
+                .collect::<Vec<_>>()
+                .join(", ")
         };
         Err(format!("Unknown category `{}`. Available: {}", req, available).into())
     } else {
@@ -508,7 +522,9 @@ mod tests {
     #[test]
     fn resolve_category_unknown_name_lists_available() {
         let cats = sample_categories();
-        let err = resolve_category(&cats, Some("nope")).unwrap_err().to_string();
+        let err = resolve_category(&cats, Some("nope"))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("scientists"));
         assert!(err.contains("planets"));
     }

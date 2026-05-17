@@ -37,7 +37,10 @@ pub async fn assign_random_nick(
 ) -> Result<(), Error> {
     // Show the modal to optionally pick a category / specific name
     let modal = poise::execute_modal(ctx, None::<NickModal>, None).await?;
-    let NickModal { category, specific_name } = match modal {
+    let NickModal {
+        category,
+        specific_name,
+    } = match modal {
         Some(m) => m,
         None => return Ok(()), // user dismissed
     };
@@ -48,7 +51,10 @@ pub async fn assign_random_nick(
 
     // Normalise inputs
     let cat_input = category.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let name_input = specific_name.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let name_input = specific_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
     let guild_id = ctx.guild_id().unwrap();
     let http = ctx.serenity_context().http.clone();
@@ -100,7 +106,12 @@ pub async fn assign_random_nick(
         .edit_member(&http, user.id, serenity::EditMember::new().nickname(&nick))
         .await
     {
-        tracing::warn!("nick edit failed for {} in {}: {:?}", user.name, guild_id, e);
+        tracing::warn!(
+            "nick edit failed for {} in {}: {:?}",
+            user.name,
+            guild_id,
+            e
+        );
         ctx.send(
             poise::CreateReply::default()
                 .content(nick_edit_failure_message(&user.name))
@@ -134,23 +145,23 @@ pub async fn assign_random_nick(
         let cn = cat_name.clone();
         tokio::spawn(async move {
             let _ = crate::db::add_used_name(&db, gid, &cn, &nn).await;
-            let _ = crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
+            let _ =
+                crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
             let _ = crate::db::upsert_guild_stats(&db, gid, total_ch, bulk_ct).await;
             let _ = crate::db::increment_category_usage(&db, gid, &cn).await;
         });
     }
 
     let safe_nick = escape_mentions(&new_nick);
-    ctx
-        .send(
-            poise::CreateReply::default()
-                .content(format!(
-                    "✅ Renamed **{}** to **{}** (from the **{}** category).",
-                    user.name, safe_nick, cat_name
-                ))
-                .allowed_mentions(serenity::CreateAllowedMentions::new()),
-        )
-        .await?;
+    ctx.send(
+        poise::CreateReply::default()
+            .content(format!(
+                "✅ Renamed **{}** to **{}** (from the **{}** category).",
+                user.name, safe_nick, cat_name
+            ))
+            .allowed_mentions(serenity::CreateAllowedMentions::new()),
+    )
+    .await?;
 
     Ok(())
 }

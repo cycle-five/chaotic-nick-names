@@ -75,7 +75,12 @@ pub async fn nick(
         .edit_member(&http, user.id, serenity::EditMember::new().nickname(&nick))
         .await
     {
-        tracing::warn!("nick edit failed for {} in {}: {:?}", user.name, guild_id, e);
+        tracing::warn!(
+            "nick edit failed for {} in {}: {:?}",
+            user.name,
+            guild_id,
+            e
+        );
         ctx.say(nick_edit_failure_message(&user.name)).await?;
         return Ok(());
     }
@@ -104,7 +109,8 @@ pub async fn nick(
         let cn = cat_name.clone();
         tokio::spawn(async move {
             let _ = crate::db::add_used_name(&db, gid, &cn, &nn).await;
-            let _ = crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
+            let _ =
+                crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
             let _ = crate::db::upsert_guild_stats(&db, gid, total_ch, bulk_ct).await;
             let _ = crate::db::increment_category_usage(&db, gid, &cn).await;
         });
