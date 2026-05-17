@@ -87,8 +87,8 @@ impl GuildState {
             available = names.iter().collect();
         }
 
-        use rand::seq::SliceRandom;
-        let mut rng = rand::thread_rng();
+        use rand::seq::IndexedRandom;
+        let mut rng = rand::rng();
         let picked = (*available.choose(&mut rng)?).clone();
 
         self.used_names
