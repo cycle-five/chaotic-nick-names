@@ -6,7 +6,7 @@ use crate::{data, Context, Error};
 /// only letters, digits, or underscores.
 fn valid_category_key(key: &str) -> bool {
     !key.is_empty()
-        && key.chars().next().is_some_and(|c| c.is_alphabetic())
+        && key.chars().next().is_some_and(char::is_alphabetic)
         && key.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
@@ -220,10 +220,10 @@ pub async fn remove(
             let _ = crate::db::clear_used_names(&db, gid, Some(&k)).await;
         });
 
-        ctx.say(format!("✅ Removed custom category **{}**.", key))
+        ctx.say(format!("✅ Removed custom category **{key}**."))
             .await?;
     } else {
-        ctx.say(format!("❌ No custom category named `{}` found.", key))
+        ctx.say(format!("❌ No custom category named `{key}` found."))
             .await?;
     }
 
@@ -294,7 +294,7 @@ pub async fn import(
     if !added.is_empty() {
         let summary: Vec<String> = added
             .iter()
-            .map(|(cat, n)| format!("• **{}** ({} name(s))", cat, n))
+            .map(|(cat, n)| format!("• **{cat}** ({n} name(s))"))
             .collect();
         reply.push_str(&format!(
             "✅ Imported **{}** categor{}:\n{}",

@@ -21,7 +21,7 @@ pub async fn reset_pool(
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
     // Normalise to lowercase so it matches the stored keys
-    let cat = category.as_deref().map(|s| s.to_lowercase());
+    let cat = category.as_deref().map(str::to_lowercase);
 
     // Reject typos instead of silently reporting a successful reset.
     if let Some(c) = &cat {
@@ -33,7 +33,7 @@ pub async fn reset_pool(
             }
         };
         if !known {
-            ctx.say(format!("❌ No category named `{}` exists.", c))
+            ctx.say(format!("❌ No category named `{c}` exists."))
                 .await?;
             return Ok(());
         }
@@ -57,7 +57,7 @@ pub async fn reset_pool(
 
     match &cat {
         Some(c) => {
-            ctx.say(format!("🔄 Reset name pool for category **{}**.", c))
+            ctx.say(format!("🔄 Reset name pool for category **{c}**."))
                 .await?
         }
         None => {

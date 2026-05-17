@@ -57,7 +57,7 @@ pub async fn nick(
         match result {
             Ok(n) => n,
             Err(e) => {
-                ctx.say(format!("❌ {}", e)).await?;
+                ctx.say(format!("❌ {e}")).await?;
                 return Ok(());
             }
         }

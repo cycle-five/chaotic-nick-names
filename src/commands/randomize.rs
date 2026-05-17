@@ -61,7 +61,7 @@ pub async fn randomize(
     };
 
     let scope_label = match &resolved {
-        Some((name, _)) => format!("the **{}** category", name),
+        Some((name, _)) => format!("the **{name}** category"),
         None => "**random categories** (full chaos)".to_string(),
     };
 
@@ -72,9 +72,8 @@ pub async fn randomize(
         .send(
             poise::CreateReply::default()
                 .content(format!(
-                    "⚠️ This will rename **{}** member(s) using {}.\nThis cannot be \
-                     automatically undone except via `/restore`. Proceed?",
-                    member_count, scope_label
+                    "⚠️ This will rename **{member_count}** member(s) using {scope_label}.\nThis cannot be \
+                     automatically undone except via `/restore`. Proceed?"
                 ))
                 .components(vec![serenity::CreateActionRow::Buttons(vec![
                     serenity::CreateButton::new(&confirm_id)
@@ -90,7 +89,7 @@ pub async fn randomize(
     let interaction = serenity::ComponentInteractionCollector::new(ctx)
         .author_id(ctx.author().id)
         .message_id(prompt.message().await?.id)
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_mins(1))
         .await;
 
     let confirmed = match interaction {
@@ -156,12 +155,9 @@ pub async fn randomize(
             .iter()
             .filter(|m| !m.user.bot)
             .filter_map(|m| {
-                let (cat, names) = match &resolved {
-                    Some((c, n)) => (c.clone(), n.clone()),
-                    None => {
-                        let k = chaos_keys.choose(&mut rng)?;
-                        (k.to_string(), categories[*k].clone())
-                    }
+                let (cat, names) = if let Some((c, n)) = &resolved { (c.clone(), n.clone()) } else {
+                    let k = chaos_keys.choose(&mut rng)?;
+                    ((*k).clone(), categories[*k].clone())
                 };
                 gs.pick_name(&cat, &names).map(|new_nick| Assignment {
                     user_id: m.user.id,
@@ -194,8 +190,7 @@ pub async fn randomize(
             ctx,
             poise::CreateReply::default()
                 .content(format!(
-                    "🎲 Randomizing **{}** member(s) using {} — this may take a moment…",
-                    total, scope_label
+                    "🎲 Randomizing **{total}** member(s) using {scope_label} — this may take a moment…"
                 ))
                 .components(vec![]),
         )
@@ -272,8 +267,7 @@ pub async fn randomize(
             "Background randomize task completed"
         );
         let summary = format!(
-            "✅ Randomization complete! Changed: **{}** | ❌ Skipped/errors: **{}**",
-            changed, errors
+            "✅ Randomization complete! Changed: **{changed}** | ❌ Skipped/errors: **{errors}**"
         );
         if let Err(e) = channel_id
             .send_message(
@@ -332,11 +326,11 @@ pub fn resolve_category(
             let mut keys: Vec<&String> = categories.keys().collect();
             keys.sort();
             keys.iter()
-                .map(|k| format!("`{}`", k))
+                .map(|k| format!("`{k}`"))
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        Err(format!("Unknown category `{}`. Available: {}", req, available).into())
+        Err(format!("Unknown category `{req}`. Available: {available}").into())
     } else {
         use rand::seq::IteratorRandom;
         let mut rng = rand::thread_rng();

@@ -39,8 +39,7 @@ pub async fn restore(
     let channel_id = ctx.channel_id();
 
     ctx.say(format!(
-        "↩️ Restoring original nickname(s) for **{}** member(s) — this may take a moment…",
-        total
+        "↩️ Restoring original nickname(s) for **{total}** member(s) — this may take a moment…"
     ))
     .await?;
 
@@ -51,7 +50,7 @@ pub async fn restore(
         for (uid, old_nick) in &targets {
             // An empty string tells Discord to clear the nickname, which is the
             // correct behaviour when the user had none before the bot acted.
-            let target = old_nick.as_deref().map(truncate_nick).unwrap_or("");
+            let target = old_nick.as_deref().map_or("", truncate_nick);
             match guild_id
                 .edit_member(
                     &http,
@@ -75,8 +74,7 @@ pub async fn restore(
 
         tracing::info!(guild = %guild_id, restored, errors, "Background restore task completed");
         let summary = format!(
-            "✅ Restore complete! Restored: **{}** | ❌ Skipped/errors: **{}**",
-            restored, errors
+            "✅ Restore complete! Restored: **{restored}** | ❌ Skipped/errors: **{errors}**"
         );
         if let Err(e) = channel_id
             .send_message(

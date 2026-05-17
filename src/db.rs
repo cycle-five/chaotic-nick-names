@@ -26,7 +26,7 @@ pub async fn setup(database_url: &str) -> Result<PgPool, sqlx::Error> {
 /// Load all guild states that exist in the database.
 pub async fn load_all_guilds(pool: &PgPool) -> Result<Vec<(GuildId, GuildState)>, sqlx::Error> {
     let guild_ids: Vec<i64> = sqlx::query_scalar(
-        r#"
+        r"
         SELECT DISTINCT guild_id FROM (
             SELECT guild_id FROM guild_stats
             UNION
@@ -36,7 +36,7 @@ pub async fn load_all_guilds(pool: &PgPool) -> Result<Vec<(GuildId, GuildState)>
             UNION
             SELECT guild_id FROM nick_changes
         ) AS g
-        "#,
+        ",
     )
     .fetch_all(pool)
     .await?;
@@ -81,13 +81,13 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
 
     // History (latest 200)
     let hist_rows = sqlx::query(
-        r#"
+        r"
         SELECT user_id, user_name, old_nick, new_nick, category, changed_at
         FROM nick_changes
         WHERE guild_id = $1
         ORDER BY changed_at DESC
         LIMIT 200
-        "#,
+        ",
     )
     .bind(gid)
     .fetch_all(pool)
@@ -144,8 +144,8 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
         history,
         stats: GuildStats {
             total_changes,
-            bulk_randomize_count,
             category_usage,
+            bulk_randomize_count,
         },
     })
 }
@@ -161,11 +161,11 @@ pub async fn upsert_custom_category(
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO custom_categories (guild_id, name, items)
         VALUES ($1, $2, $3)
         ON CONFLICT (guild_id, name) DO UPDATE SET items = EXCLUDED.items
-        "#,
+        ",
     )
     .bind(gid)
     .bind(name)
@@ -199,11 +199,11 @@ pub async fn add_used_name(
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO used_names (guild_id, category_name, name)
         VALUES ($1, $2, $3)
         ON CONFLICT DO NOTHING
-        "#,
+        ",
     )
     .bind(gid)
     .bind(category)
@@ -226,11 +226,11 @@ pub async fn add_used_names_bulk(
     let cats: Vec<String> = pairs.iter().map(|(c, _)| c.clone()).collect();
     let names: Vec<String> = pairs.iter().map(|(_, n)| n.clone()).collect();
     sqlx::query(
-        r#"
+        r"
         INSERT INTO used_names (guild_id, category_name, name)
         SELECT $1, c, n FROM UNNEST($2::text[], $3::text[]) AS t(c, n)
         ON CONFLICT DO NOTHING
-        "#,
+        ",
     )
     .bind(gid)
     .bind(&cats)
@@ -265,12 +265,12 @@ pub async fn insert_nick_changes_bulk(
     let news: Vec<String> = rows.iter().map(|r| r.new_nick.clone()).collect();
     let cats: Vec<String> = rows.iter().map(|r| r.category.clone()).collect();
     sqlx::query(
-        r#"
+        r"
         INSERT INTO nick_changes (guild_id, user_id, user_name, old_nick, new_nick, category)
         SELECT $1, uid, un, old, nn, cat
         FROM UNNEST($2::bigint[], $3::text[], $4::text[], $5::text[], $6::text[])
             AS t(uid, un, old, nn, cat)
-        "#,
+        ",
     )
     .bind(gid)
     .bind(&uids)
@@ -296,12 +296,12 @@ pub async fn increment_category_usage_bulk(
     let cats: Vec<String> = counts.iter().map(|(c, _)| c.clone()).collect();
     let deltas: Vec<i64> = counts.iter().map(|(_, n)| *n).collect();
     sqlx::query(
-        r#"
+        r"
         INSERT INTO category_usage (guild_id, category_name, usage_count)
         SELECT $1, c, n FROM UNNEST($2::text[], $3::bigint[]) AS t(c, n)
         ON CONFLICT (guild_id, category_name) DO UPDATE
             SET usage_count = category_usage.usage_count + EXCLUDED.usage_count
-        "#,
+        ",
     )
     .bind(gid)
     .bind(&cats)
@@ -349,12 +349,12 @@ pub async fn original_nicks(
     let rows = match user_id {
         Some(uid) => {
             sqlx::query(
-                r#"
+                r"
                 SELECT DISTINCT ON (user_id) user_id, old_nick
                 FROM nick_changes
                 WHERE guild_id = $1 AND user_id = $2
                 ORDER BY user_id, changed_at ASC
-                "#,
+                ",
             )
             .bind(gid)
             .bind(uid as i64)
@@ -363,12 +363,12 @@ pub async fn original_nicks(
         }
         None => {
             sqlx::query(
-                r#"
+                r"
                 SELECT DISTINCT ON (user_id) user_id, old_nick
                 FROM nick_changes
                 WHERE guild_id = $1
                 ORDER BY user_id, changed_at ASC
-                "#,
+                ",
             )
             .bind(gid)
             .fetch_all(pool)
@@ -400,10 +400,10 @@ pub async fn insert_nick_change(
     let gid = guild_id.get() as i64;
     let uid = user_id as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO nick_changes (guild_id, user_id, user_name, old_nick, new_nick, category)
         VALUES ($1, $2, $3, $4, $5, $6)
-        "#,
+        ",
     )
     .bind(gid)
     .bind(uid)
@@ -425,13 +425,13 @@ pub async fn upsert_guild_stats(
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO guild_stats (guild_id, total_changes, bulk_randomize_count)
         VALUES ($1, $2, $3)
         ON CONFLICT (guild_id) DO UPDATE
             SET total_changes        = EXCLUDED.total_changes,
                 bulk_randomize_count = EXCLUDED.bulk_randomize_count
-        "#,
+        ",
     )
     .bind(gid)
     .bind(total_changes as i64)
@@ -449,12 +449,12 @@ pub async fn increment_category_usage(
 ) -> Result<(), sqlx::Error> {
     let gid = guild_id.get() as i64;
     sqlx::query(
-        r#"
+        r"
         INSERT INTO category_usage (guild_id, category_name, usage_count)
         VALUES ($1, $2, 1)
         ON CONFLICT (guild_id, category_name) DO UPDATE
             SET usage_count = category_usage.usage_count + 1
-        "#,
+        ",
     )
     .bind(gid)
     .bind(category)

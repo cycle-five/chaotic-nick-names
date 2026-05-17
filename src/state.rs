@@ -89,7 +89,7 @@ impl GuildState {
 
         use rand::seq::SliceRandom;
         let mut rng = rand::thread_rng();
-        let picked = available.choose(&mut rng)?.to_string();
+        let picked = (*available.choose(&mut rng)?).clone();
 
         self.used_names
             .entry(category.to_string())
@@ -109,8 +109,7 @@ impl GuildState {
     ) -> Result<String, String> {
         if !all_names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
             return Err(format!(
-                "**{}** is not in the **{}** category.",
-                name, category
+                "**{name}** is not in the **{category}** category."
             ));
         }
         // Find the canonical casing

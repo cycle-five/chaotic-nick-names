@@ -85,7 +85,7 @@ pub async fn assign_random_nick(
         match result {
             Ok(n) => n,
             Err(e) => {
-                ctx.say(format!("❌ {}", e)).await?;
+                ctx.say(format!("❌ {e}")).await?;
                 return Ok(());
             }
         }
