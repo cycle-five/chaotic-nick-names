@@ -149,8 +149,8 @@ pub async fn randomize(
         let gs = data.guild_mut(guild_id);
         // Created after the lock is held and never kept across an `.await`
         // (ThreadRng is !Send); the closure below contains no await points.
-        use rand::seq::SliceRandom;
-        let mut rng = rand::thread_rng();
+        use rand::seq::IndexedRandom;
+        let mut rng = rand::rng();
         members
             .iter()
             .filter(|m| !m.user.bot)
@@ -335,7 +335,7 @@ pub fn resolve_category(
         Err(format!("Unknown category `{req}`. Available: {available}").into())
     } else {
         use rand::seq::IteratorRandom;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let (k, v) = categories
             .iter()
             .choose(&mut rng)
