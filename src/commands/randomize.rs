@@ -155,7 +155,9 @@ pub async fn randomize(
             .iter()
             .filter(|m| !m.user.bot)
             .filter_map(|m| {
-                let (cat, names) = if let Some((c, n)) = &resolved { (c.clone(), n.clone()) } else {
+                let (cat, names) = if let Some((c, n)) = &resolved {
+                    (c.clone(), n.clone())
+                } else {
                     let k = chaos_keys.choose(&mut rng)?;
                     ((*k).clone(), categories[*k].clone())
                 };

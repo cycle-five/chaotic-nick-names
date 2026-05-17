@@ -108,9 +108,7 @@ impl GuildState {
         all_names: &[String],
     ) -> Result<String, String> {
         if !all_names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
-            return Err(format!(
-                "**{name}** is not in the **{category}** category."
-            ));
+            return Err(format!("**{name}** is not in the **{category}** category."));
         }
         // Find the canonical casing
         let canonical = all_names
