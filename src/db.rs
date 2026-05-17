@@ -222,6 +222,104 @@ pub async fn add_used_name(
     Ok(())
 }
 
+/// Bulk-mark many `(category, name)` pairs as used in a single round trip.
+pub async fn add_used_names_bulk(
+    pool: &PgPool,
+    guild_id: GuildId,
+    pairs: &[(String, String)],
+) -> Result<(), sqlx::Error> {
+    if pairs.is_empty() {
+        return Ok(());
+    }
+    let gid = guild_id.get() as i64;
+    let cats: Vec<String> = pairs.iter().map(|(c, _)| c.clone()).collect();
+    let names: Vec<String> = pairs.iter().map(|(_, n)| n.clone()).collect();
+    sqlx::query(
+        r#"
+        INSERT INTO used_names (guild_id, category_name, name)
+        SELECT $1, c, n FROM UNNEST($2::text[], $3::text[]) AS t(c, n)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(gid)
+    .bind(&cats)
+    .bind(&names)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// One recorded nickname change, used for bulk persistence.
+pub struct NickChangeRecord {
+    pub user_id: u64,
+    pub user_name: String,
+    pub old_nick: Option<String>,
+    pub new_nick: String,
+    pub category: String,
+}
+
+/// Bulk-insert many nick-change rows in a single round trip.
+pub async fn insert_nick_changes_bulk(
+    pool: &PgPool,
+    guild_id: GuildId,
+    rows: &[NickChangeRecord],
+) -> Result<(), sqlx::Error> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let gid = guild_id.get() as i64;
+    let uids: Vec<i64> = rows.iter().map(|r| r.user_id as i64).collect();
+    let unames: Vec<String> = rows.iter().map(|r| r.user_name.clone()).collect();
+    let olds: Vec<Option<String>> = rows.iter().map(|r| r.old_nick.clone()).collect();
+    let news: Vec<String> = rows.iter().map(|r| r.new_nick.clone()).collect();
+    let cats: Vec<String> = rows.iter().map(|r| r.category.clone()).collect();
+    sqlx::query(
+        r#"
+        INSERT INTO nick_changes (guild_id, user_id, user_name, old_nick, new_nick, category)
+        SELECT $1, uid, un, old, nn, cat
+        FROM UNNEST($2::bigint[], $3::text[], $4::text[], $5::text[], $6::text[])
+            AS t(uid, un, old, nn, cat)
+        "#,
+    )
+    .bind(gid)
+    .bind(&uids)
+    .bind(&unames)
+    .bind(&olds)
+    .bind(&news)
+    .bind(&cats)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Bulk-increment category usage counters from a `(category, delta)` list.
+pub async fn increment_category_usage_bulk(
+    pool: &PgPool,
+    guild_id: GuildId,
+    counts: &[(String, i64)],
+) -> Result<(), sqlx::Error> {
+    if counts.is_empty() {
+        return Ok(());
+    }
+    let gid = guild_id.get() as i64;
+    let cats: Vec<String> = counts.iter().map(|(c, _)| c.clone()).collect();
+    let deltas: Vec<i64> = counts.iter().map(|(_, n)| *n).collect();
+    sqlx::query(
+        r#"
+        INSERT INTO category_usage (guild_id, category_name, usage_count)
+        SELECT $1, c, n FROM UNNEST($2::text[], $3::bigint[]) AS t(c, n)
+        ON CONFLICT (guild_id, category_name) DO UPDATE
+            SET usage_count = category_usage.usage_count + EXCLUDED.usage_count
+        "#,
+    )
+    .bind(gid)
+    .bind(&cats)
+    .bind(&deltas)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Clear used-name pool for one category, or all categories if `category` is `None`.
 pub async fn clear_used_names(
     pool: &PgPool,

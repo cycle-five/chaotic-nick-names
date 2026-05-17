@@ -25,12 +25,8 @@ pub fn parse_category_csv(text: &str) -> (Vec<(String, Vec<String>)>, Vec<String
             continue;
         }
 
-        let mut fields: Vec<&str> = line.split(',').collect();
-        if fields.is_empty() {
-            continue;
-        }
-
-        let raw_key = fields.remove(0).trim();
+        let mut fields = line.split(',');
+        let raw_key = fields.next().unwrap_or("").trim();
         let key = raw_key.to_lowercase();
 
         if !valid_category_key(&key) {
@@ -43,7 +39,6 @@ pub fn parse_category_csv(text: &str) -> (Vec<(String, Vec<String>)>, Vec<String
         }
 
         let names: Vec<String> = fields
-            .iter()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();

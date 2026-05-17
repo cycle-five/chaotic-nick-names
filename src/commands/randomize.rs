@@ -120,9 +120,31 @@ pub async fn randomize(
 
     // ── Assign names (without-replacement draw, holding write lock briefly) ────
     // Each tuple is (member, new_nick, category_used).
-    let assignments: Vec<(serenity::Member, String, String)> = {
+    // Only the fields we actually need downstream — avoids cloning the whole
+    // (large) serenity::Member per member.
+    struct Assignment {
+        user_id: serenity::UserId,
+        user_name: String,
+        old_nick: Option<String>,
+        new_nick: String,
+        category: String,
+    }
+
+    let assignments: Vec<Assignment> = {
+        // In chaos mode collect the category keys once (O(C)) so per-member
+        // selection is O(1) instead of O(C) per member.
+        let chaos_keys: Vec<&String> = if resolved.is_none() {
+            categories.keys().collect()
+        } else {
+            Vec::new()
+        };
+
         let mut data = ctx.data().write_state().await;
         let gs = data.guild_mut(guild_id);
+        // Created after the lock is held and never kept across an `.await`
+        // (ThreadRng is !Send); the closure below contains no await points.
+        use rand::seq::SliceRandom;
+        let mut rng = rand::thread_rng();
         members
             .iter()
             .filter(|m| !m.user.bot)
@@ -130,21 +152,29 @@ pub async fn randomize(
                 let (cat, names) = match &resolved {
                     Some((c, n)) => (c.clone(), n.clone()),
                     None => {
-                        use rand::seq::IteratorRandom;
-                        let mut rng = rand::thread_rng();
-                        let (k, v) = categories.iter().choose(&mut rng)?;
-                        (k.clone(), v.clone())
+                        let k = chaos_keys.choose(&mut rng)?;
+                        (k.to_string(), categories[*k].clone())
                     }
                 };
-                gs.pick_name(&cat, &names).map(|n| (m.clone(), n, cat))
+                gs.pick_name(&cat, &names).map(|new_nick| Assignment {
+                    user_id: m.user.id,
+                    user_name: m.user.name.clone(),
+                    old_nick: m.nick.clone(),
+                    new_nick,
+                    category: cat,
+                })
             })
             .collect()
     };
 
-    // Persist the pool updates to DB (best-effort, outside the lock)
-    for (_, name, cat) in &assignments {
-        if let Err(e) = crate::db::add_used_name(&ctx.data().db, guild_id, cat, name).await {
-            tracing::warn!("DB error persisting used_name: {:?}", e);
+    // Persist the pool updates to DB in a single bulk insert (best-effort).
+    {
+        let pairs: Vec<(String, String)> = assignments
+            .iter()
+            .map(|a| (a.category.clone(), a.new_nick.clone()))
+            .collect();
+        if let Err(e) = crate::db::add_used_names_bulk(&ctx.data().db, guild_id, &pairs).await {
+            tracing::warn!("DB error bulk-persisting used_names: {:?}", e);
         }
     }
 
@@ -169,11 +199,13 @@ pub async fn randomize(
     tokio::spawn(async move {
         let mut changed = 0u32;
         let mut errors = 0u32;
+        let mut change_rows: Vec<crate::db::NickChangeRecord> = Vec::new();
+        let mut usage: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
 
-        for (member, new_nick, cat_name) in &assignments {
-            let nick = truncate_nick(new_nick);
+        for a in &assignments {
+            let nick = truncate_nick(&a.new_nick);
             match guild_id
-                .edit_member(&http, member.user.id, serenity::EditMember::new().nickname(nick))
+                .edit_member(&http, a.user_id, serenity::EditMember::new().nickname(nick))
                 .await
             {
                 Ok(_) => {
@@ -181,30 +213,26 @@ pub async fn randomize(
                     {
                         let mut data = bot_data.write_state().await;
                         data.guild_mut(guild_id).record_change(
-                            member.user.id.get(),
-                            member.user.name.clone(),
-                            member.nick.clone(),
-                            new_nick.clone(),
-                            cat_name.clone(),
+                            a.user_id.get(),
+                            a.user_name.clone(),
+                            a.old_nick.clone(),
+                            a.new_nick.clone(),
+                            a.category.clone(),
                         );
                     }
-                    // Persist this change (best-effort)
-                    let db = bot_data.db.clone();
-                    let gid = guild_id;
-                    let nn = new_nick.clone();
-                    let cn = cat_name.clone();
-                    let un = member.user.name.clone();
-                    let old = member.nick.clone();
-                    let uid = member.user.id.get();
-                    tokio::spawn(async move {
-                        let _ = crate::db::insert_nick_change(&db, gid, uid, &un, old.as_deref(), &nn, &cn).await;
-                        let _ = crate::db::increment_category_usage(&db, gid, &cn).await;
+                    *usage.entry(a.category.clone()).or_insert(0) += 1;
+                    change_rows.push(crate::db::NickChangeRecord {
+                        user_id: a.user_id.get(),
+                        user_name: a.user_name.clone(),
+                        old_nick: a.old_nick.clone(),
+                        new_nick: a.new_nick.clone(),
+                        category: a.category.clone(),
                     });
                 }
                 Err(e) => {
                     tracing::warn!(
                         "Could not change nick for {} in {}: {:?}",
-                        member.user.name,
+                        a.user_name,
                         guild_id,
                         e
                     );
@@ -212,6 +240,12 @@ pub async fn randomize(
                 }
             }
         }
+
+        // Persist all changes for this run in a few bulk round trips instead of
+        // a query (and a spawned task) per member.
+        let _ = crate::db::insert_nick_changes_bulk(&bot_data.db, guild_id, &change_rows).await;
+        let usage_list: Vec<(String, i64)> = usage.into_iter().collect();
+        let _ = crate::db::increment_category_usage_bulk(&bot_data.db, guild_id, &usage_list).await;
 
         // Increment the bulk-run counter, then persist the final aggregate
         // stats exactly once (this also fixes bulk_randomize_count never
