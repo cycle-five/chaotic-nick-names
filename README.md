@@ -158,8 +158,8 @@ are reset.
 
 ### Prerequisites
 
-- Rust 1.70+ (`rustup` recommended)
-- PostgreSQL 14+ (any recent version works)
+- Rust 1.90+ (`rustup` recommended)
+- PostgreSQL 16+ (any recent version works)
 - A Discord application with a bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 
 ### Required bot permissions
