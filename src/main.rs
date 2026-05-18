@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use poise::serenity_prelude as serenity;
+use tracing_subscriber::prelude::*;
 
 mod commands;
 mod data;
@@ -38,11 +39,18 @@ async fn main() {
     // Load optional .env file (silently ignore if absent)
     dotenv::dotenv().ok();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "chaotic_nick_names=info,warn".parse().unwrap()),
+    // Log to stderr: Rust's `Stderr` is unbuffered, so lines reach
+    // `docker logs` immediately. `Stdout` is line-buffered and a low-traffic
+    // bot can leave post-startup lines unflushed for a long time, which made
+    // the deployed bot look frozen when it was fine. Registry + layer
+    // structure mirrors our other services.
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                tracing_subscriber::EnvFilter::new("chaotic_nick_names=info,warn")
+            }),
         )
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 
     let token =
