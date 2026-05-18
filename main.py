@@ -109,7 +109,12 @@ def extract_links(html: str, options: dict | None = None) -> list[str]:
 
 
 def extract_bullets(html: str, options: dict | None = None) -> list[str]:
-    """Raw `<li>` text from body bullet lists (clean_name splits later)."""
+    """Raw `<li>` text from body bullet lists (clean_name splits later).
+
+    `options` is accepted for interface symmetry but unused. Nested
+    sub-list items also surface individually; bloated parent strings are
+    dropped later by clean_name's length gate.
+    """
     body = _content(html)
     return [li.get_text(" ", strip=True) for li in body.select("ul > li")]
 

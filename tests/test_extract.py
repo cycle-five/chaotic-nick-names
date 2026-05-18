@@ -1,4 +1,4 @@
-from main import extract_links
+from main import extract_links, extract_bullets, extract_table_col
 
 LINKS_HTML = """
 <html><body>
@@ -44,8 +44,6 @@ def test_extract_links_real_wiki_h2_with_editsection():
     assert "RealArticle" in got
     assert "SeeAlso" not in got
 
-
-from main import extract_bullets, extract_table_col
 
 BULLETS_HTML = """
 <html><body><div class="mw-parser-output"><ul>
