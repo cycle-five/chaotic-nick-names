@@ -36,6 +36,9 @@ _JUNK_PREFIXES = (
     "table of ",
 )
 _JUNK_SUBSTRINGS = (" industry in ",)
+_JUNK_EXCEPTIONS = frozenset({
+    "history of the world",  # real Avalon Hill / Ragnar Brothers board game
+})
 
 
 def clean_name(raw: str | None) -> str | None:
@@ -55,7 +58,10 @@ def clean_name(raw: str | None) -> str | None:
     if name.lower() in STOPWORDS:
         return None
     low = name.lower()
-    if low.startswith(_JUNK_PREFIXES) or any(s in low for s in _JUNK_SUBSTRINGS):
+    if low not in _JUNK_EXCEPTIONS and (
+        low.startswith(_JUNK_PREFIXES)
+        or any(s in low for s in _JUNK_SUBSTRINGS)
+    ):
         return None
     return name
 

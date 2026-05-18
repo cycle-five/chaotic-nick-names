@@ -68,3 +68,8 @@ def test_junk_filter_keeps_legitimate_lookalikes():
     assert clean_name("Industry") == "Industry"
     assert clean_name("Historia") == "Historia"
     assert clean_name("Tablet") == "Tablet"
+
+
+def test_junk_exceptions_whitelist():
+    assert clean_name("History of the World") == "History of the World"
+    assert clean_name("History of mathematics") is None  # still filtered
