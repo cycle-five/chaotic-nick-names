@@ -196,7 +196,7 @@ SOURCES: dict[str, list[tuple]] = {
         (W + "List_of_female_supervillains", "links", {})],
     "hard_things": [],
     "constellations": [
-        (W + "IAU_designated_constellations", "table_col", {"col": 1})],
+        (W + "IAU_designated_constellations", "table_col", {"col": 0})],
     "spices": [(W + "List_of_culinary_herbs_and_spices", "links", {}),
                (W + "List_of_herbs", "links", {}),
                (W + "List_of_spice_mixes", "links", {})],
