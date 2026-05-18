@@ -170,7 +170,7 @@ W = "https://en.wikipedia.org/wiki/"
 
 STRATEGIES = {
     "links": extract_links,
-    "bullets": extract_bullets,
+    "bullets": extract_bullets,  # reserved: no SOURCES entry uses it yet
     "table_col": extract_table_col,
 }
 
@@ -222,7 +222,7 @@ MIN_TARGET = {
 }
 
 
-def scrape_category(session, name: str) -> list[str]:
+def scrape_category(session: requests.Session, name: str) -> list[str]:
     raw: list[str] = []
     for (url, strat, opts) in SOURCES.get(name, []):
         html = fetch(session, url)
