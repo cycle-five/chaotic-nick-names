@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from unidecode import unidecode
 
 # ---------------------------------------------------------------- cleaning ---
@@ -59,4 +59,50 @@ def dedupe_keep_first(names: list[str]) -> list[str]:
         if k not in seen:
             seen.add(k)
             out.append(n)
+    return out
+
+
+# -------------------------------------------------------------- extraction ---
+
+_EXCLUDE = [
+    ".navbox", ".reflist", "ol.references", "#toc", ".toc",
+    ".mw-editsection", "table.metadata", ".navbar", "style", "script",
+    ".thumb", ".gallery", ".sistersitebox", ".hatnote",
+]
+_STOP_SECTIONS = {
+    "see also", "references", "external links", "notes",
+    "further reading", "bibliography", "sources",
+}
+_BAD_HREF = ("File:", "Category:", "Help:", "Wikipedia:",
+             "Template:", "Portal:", "Special:", "Talk:")
+
+
+def _content(html: str) -> Tag | BeautifulSoup:
+    """Return the article body with nav/ref/see-also chrome removed."""
+    soup = BeautifulSoup(html, "lxml")
+    body = soup.select_one("div.mw-parser-output") or soup
+    for sel in _EXCLUDE:
+        for el in body.select(sel):
+            el.decompose()
+    for h in body.find_all("h2"):
+        if h.get_text(strip=True).lower() in _STOP_SECTIONS:
+            for sib in list(h.next_siblings):
+                if getattr(sib, "decompose", None):
+                    sib.decompose()
+            h.decompose()
+            break
+    return body
+
+
+def extract_links(html: str, options: dict | None = None) -> list[str]:
+    """Article-link titles in the body, excluding namespaced links."""
+    body = _content(html)
+    out: list[str] = []
+    for a in body.select("a[href^='/wiki/']"):
+        slug = a["href"][len("/wiki/"):]
+        if any(slug.startswith(p) for p in _BAD_HREF):
+            continue
+        text = a.get_text(" ", strip=True)
+        if text:
+            out.append(text)
     return out
