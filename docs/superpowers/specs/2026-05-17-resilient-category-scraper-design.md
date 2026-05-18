@@ -105,7 +105,7 @@ maximum, not 300.
 | fictional_villainesses | ~120 | `List_of_female_supervillains` (links, best-effort) | 150 | seed-primary; replaces `woman_murders` |
 | hard_things | ~100 | none (curated only) | 100 | def below |
 | constellations | 88 | `IAU_designated_constellations` (table_col 0) | 88 | **hard cap = 88** |
-| spices | ~120 | `List_of_culinary_herbs_and_spices` (table/links) | 150 | **cap ≈ 150** |
+| spices | ~150 | `List_of_culinary_herbs_and_spices`, `List_of_herbs`, `List_of_spice_mixes` (table/links) | 300 | spices + herbs + blends |
 | amusement_parks *(existing, expand)* | ~80 | `List_of_amusement_parks` worldwide (links/table) | 200 | |
 | chemical_compounds *(existing, expand)* | ~80 | `List_of_compounds` (links, best-effort) | 150 | seed-primary |
 | colors *(existing, expand)* | ~80 | `List_of_colors_(compact)` / A–F,G–M,N–Z (table/links) | 300 | |
@@ -117,6 +117,11 @@ maximum, not 300.
 `hard_things` definition: things idiomatically or literally hard — hard
 materials (diamond, tungsten, carbide, sapphire, …) plus notoriously difficult
 games/feats (Dark Souls, Castlevania, Nurburgring, Sekiro, …). Curated only.
+
+`spices` scope (expanded per review): culinary spices, culinary herbs, common
+botanical/medicinal herbs, and spice/herb blends (garam masala, herbes de
+Provence, za'atar, ras el hanout, shichimi togarashi, …). Broadened beyond
+strictly-culinary so the category reaches the 300 target.
 
 ## 5. Security & Tooling
 
@@ -148,7 +153,7 @@ games/feats (Dark Souls, Castlevania, Nurburgring, Sekiro, …). Curated only.
    ≥10 new categories, including `fictional_villainesses` and **no**
    `woman_murders`.
 3. Every non-capped category meets its `min_target`; capped categories
-   (`constellations`=88, `elements`=118, `planets`≤13, `spices`≈150) are at
+   (`constellations`=88, `elements`=118, `planets`≤13) are at
    their natural maximum.
 4. `cargo test` passes (all `src/data.rs` integrity tests green).
 5. No credentials present in any committed file; `main.py` is committable.
