@@ -136,3 +136,28 @@ def extract_table_col(html: str, options: dict | None = None) -> list[str]:
             out.append(a.get_text(" ", strip=True) if a
                        else cell.get_text(" ", strip=True))
     return out
+
+
+# ----------------------------------------------------------------- fetch ---
+
+USER_AGENT = "ChaoticNickBot/1.0 (Discord novelty bot category builder)"
+
+
+def get_session() -> requests.Session:
+    s = requests.Session()
+    proxy = os.environ.get("SCRAPER_PROXY_URL", "").strip()
+    if proxy:
+        s.proxies = {"http": proxy, "https": proxy}
+    return s
+
+
+def fetch(session: requests.Session, url: str, delay: float = 1.0) -> str | None:
+    try:
+        r = session.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
+        r.raise_for_status()
+        time.sleep(delay + random.uniform(0.5, 1.5))
+        print(f"✅ fetched {url}")
+        return r.text
+    except Exception as e:  # noqa: BLE001 - one bad page must not abort the run
+        print(f"❌ fetch failed {url}: {e}")
+        return None
