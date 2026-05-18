@@ -30,6 +30,13 @@ STOPWORDS = {
 }
 STOPWORDS |= {chr(c) for c in range(ord("a"), ord("z") + 1)}
 
+_JUNK_PREFIXES = (
+    "list of ", "lists of ", "index of ", "outline of ", "timeline of ",
+    "history of ", "glossary of ", "comparison of ", "bibliography of ",
+    "table of ",
+)
+_JUNK_SUBSTRINGS = (" industry in ",)
+
 
 def clean_name(raw: str | None) -> str | None:
     """Normalise a raw scraped string, or None if it is not a usable name."""
@@ -46,6 +53,9 @@ def clean_name(raw: str | None) -> str | None:
     if len(name) < 3 or len(name) > 32:
         return None
     if name.lower() in STOPWORDS:
+        return None
+    low = name.lower()
+    if low.startswith(_JUNK_PREFIXES) or any(s in low for s in _JUNK_SUBSTRINGS):
         return None
     return name
 

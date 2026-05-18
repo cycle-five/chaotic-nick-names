@@ -47,3 +47,24 @@ def test_cuts_at_em_dash():
 
 def test_dedupe_keep_first_preserves_order():
     assert dedupe_keep_first(["Rum", "Gin", "rum"]) == ["Rum", "Gin"]
+
+
+def test_rejects_wikipedia_list_and_meta_junk():
+    assert clean_name("List of named alloys") is None
+    assert clean_name("Lists of integrals") is None
+    assert clean_name("Index of physics articles") is None
+    assert clean_name("Outline of chemistry") is None
+    assert clean_name("Timeline of chemistry") is None
+    assert clean_name("History of mathematics") is None
+    assert clean_name("Glossary of chemistry terms") is None
+    assert clean_name("Comparison of dinosaurs") is None
+    assert clean_name("Bibliography of biology") is None
+    assert clean_name("Table of nuclides") is None
+    assert clean_name("Automotive industry in Pakistan") is None
+
+
+def test_junk_filter_keeps_legitimate_lookalikes():
+    assert clean_name("Listeria") == "Listeria"
+    assert clean_name("Industry") == "Industry"
+    assert clean_name("Historia") == "Historia"
+    assert clean_name("Tablet") == "Tablet"
