@@ -1,0 +1,20 @@
+[project]
+name = "chaotic-nick-names"
+version = "0.1.0"
+description = "Category data scraper for the chaotic-nick-names Discord bot"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2.31",
+    "PySocks>=1.7",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "unidecode>=1.3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

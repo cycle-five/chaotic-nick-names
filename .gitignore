@@ -1,3 +1,7 @@
 /target
 .env
 *.pdb
+.python-version
+__pycache__/
+*.pyc
+.pytest_cache/
