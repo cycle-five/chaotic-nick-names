@@ -106,3 +106,28 @@ def extract_links(html: str, options: dict | None = None) -> list[str]:
         if text:
             out.append(text)
     return out
+
+
+def extract_bullets(html: str, options: dict | None = None) -> list[str]:
+    """Raw `<li>` text from body bullet lists (clean_name splits later)."""
+    body = _content(html)
+    return [li.get_text(" ", strip=True) for li in body.select("ul > li")]
+
+
+def extract_table_col(html: str, options: dict | None = None) -> list[str]:
+    """Column `options['col']` (default 0) of each wikitable data row."""
+    col = (options or {}).get("col", 0)
+    body = _content(html)
+    out: list[str] = []
+    for table in body.select("table.wikitable"):
+        for tr in table.select("tr"):
+            cells = tr.find_all(["td", "th"], recursive=False)
+            if not cells or all(c.name == "th" for c in cells):
+                continue  # skip the header row (and empty rows)
+            if len(cells) <= col:
+                continue
+            cell = cells[col]
+            a = cell.find("a")
+            out.append(a.get_text(" ", strip=True) if a
+                       else cell.get_text(" ", strip=True))
+    return out

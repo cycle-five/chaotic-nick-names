@@ -43,3 +43,41 @@ def test_extract_links_real_wiki_h2_with_editsection():
     got = extract_links(html, {})
     assert "RealArticle" in got
     assert "SeeAlso" not in got
+
+
+from main import extract_bullets, extract_table_col
+
+BULLETS_HTML = """
+<html><body><div class="mw-parser-output"><ul>
+  <li>Gin – a juniper spirit</li>
+  <li>Margarita (cocktail)</li>
+  <li>Negroni</li>
+</ul></div></body></html>
+"""
+
+TABLE_HTML = """
+<html><body><div class="mw-parser-output">
+<table class="wikitable">
+  <tr><th>Idx</th><th>Name</th></tr>
+  <tr><td>1</td><td><a href="/wiki/Andromeda">Andromeda</a></td></tr>
+  <tr><td>2</td><td><a href="/wiki/Aquarius">Aquarius</a></td></tr>
+  <tr><td>3</td><td>Lyra</td></tr>
+</table>
+</div></body></html>
+"""
+
+
+def test_extract_bullets_returns_raw_li_text():
+    got = extract_bullets(BULLETS_HTML, {})
+    assert "Gin – a juniper spirit" in got
+    assert "Negroni" in got
+
+
+def test_extract_table_col_picks_chosen_column():
+    got = extract_table_col(TABLE_HTML, {"col": 1})
+    assert got == ["Andromeda", "Aquarius", "Lyra"]
+
+
+def test_extract_table_col_defaults_to_first_column():
+    got = extract_table_col(TABLE_HTML, {})
+    assert got == ["1", "2", "3"]
