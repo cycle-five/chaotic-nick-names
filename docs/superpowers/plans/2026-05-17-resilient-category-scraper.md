@@ -413,6 +413,8 @@ def extract_table_col(html: str, options: dict | None = None) -> list[str]:
     for table in body.select("table.wikitable"):
         for tr in table.select("tr"):
             cells = tr.find_all(["td", "th"], recursive=False)
+            if not cells or all(c.name == "th" for c in cells):
+                continue  # skip the header row (and empty rows)
             if len(cells) <= col:
                 continue
             cell = cells[col]
@@ -425,7 +427,8 @@ def extract_table_col(html: str, options: dict | None = None) -> list[str]:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `uv run pytest tests/test_extract.py -q`
-Expected: PASS (5 passed total in the file).
+Expected: PASS (6 passed total in the file — 3 from Task 3 incl. the
+real-wiki h2 test, plus the 3 added here).
 
 - [ ] **Step 5: Commit**
 
