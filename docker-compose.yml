@@ -1,5 +1,9 @@
 services:
   bot:
+    # Pulls the image published by .github/workflows/docker.yml on master.
+    # `build: .` is kept as a local-dev fallback (compose builds if the
+    # image isn't present and you run `docker compose build`).
+    image: ghcr.io/cycle-five/chaotic-nick-names:latest
     build: .
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
