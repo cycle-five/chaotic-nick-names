@@ -7,6 +7,7 @@ use tracing_subscriber::prelude::*;
 mod commands;
 mod data;
 mod db;
+mod logging;
 mod state;
 
 /// Shared application data: in-memory state + Postgres connection pool.
@@ -84,9 +85,22 @@ async fn main() {
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: commands::all_commands(),
-            on_error: |err| {
+            pre_command: |ctx| {
                 Box::pin(async move {
-                    if let Err(e) = poise::builtins::on_error(err).await {
+                    logging::log_command_start(ctx);
+                })
+            },
+            post_command: |ctx| {
+                Box::pin(async move {
+                    logging::log_command_end(ctx);
+                })
+            },
+            on_error: |error| {
+                Box::pin(async move {
+                    // Structured log first, then delegate to the builtin so
+                    // users still get their error/permission replies.
+                    logging::log_command_error(&error);
+                    if let Err(e) = poise::builtins::on_error(error).await {
                         tracing::error!("Unhandled error in error handler: {}", e);
                     }
                 })
