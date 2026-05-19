@@ -147,15 +147,29 @@ def extract_bullets(html: str, options: dict | None = None) -> list[str]:
 def extract_table_col(html: str, options: dict | None = None) -> list[str]:
     """Column `options['col']` (default 0) of each wikitable data row.
 
-    Source-specific override: pass `{"table_selector": "table"}` (or any CSS
-    selector) when a page's data table isn't a `.wikitable` (rare, but e.g.
-    `List_of_serial_killers_in_the_United_States`). The default keeps every
-    other source narrow so layout/infobox tables don't leak in.
+    Source-specific overrides via `options`:
+      * `"table_selector"`: CSS selector for the data table when it isn't a
+        `.wikitable` (default `"table.wikitable"`).
+      * `"swap_on_comma"`: if true, rewrite cell text containing `", "` from
+        `"Last, First"` to `"First Last"` BEFORE `clean_name` strips the
+        comma. Use for Wikipedia tables sorted surname-first
+        (e.g. `List_of_serial_killers_in_the_United_States`).
+      * `"scope": "soup"`: bypass `_content`'s `mw-parser-output` scoping and
+        operate on the whole document (still applies `_EXCLUDE` to strip
+        nav/ref chrome). Needed for the rare page whose data table sits
+        outside `mw-parser-output`.
     """
     opts = options or {}
     col = opts.get("col", 0)
     table_sel = opts.get("table_selector", "table.wikitable")
-    body = _content(html)
+    swap = bool(opts.get("swap_on_comma"))
+    if opts.get("scope") == "soup":
+        body = BeautifulSoup(html, "lxml")
+        for sel in _EXCLUDE:
+            for el in body.select(sel):
+                el.decompose()
+    else:
+        body = _content(html)
     out: list[str] = []
     for table in body.select(table_sel):
         for tr in table.select("tr"):
@@ -166,8 +180,12 @@ def extract_table_col(html: str, options: dict | None = None) -> list[str]:
                 continue
             cell = cells[col]
             a = cell.find("a")
-            out.append(a.get_text(" ", strip=True) if a
-                       else cell.get_text(" ", strip=True))
+            text = (a.get_text(" ", strip=True) if a
+                    else cell.get_text(" ", strip=True))
+            if swap and ", " in text:
+                last, first = text.split(", ", 1)
+                text = f"{first} {last}"
+            out.append(text)
     return out
 
 
@@ -209,9 +227,9 @@ STRATEGIES = {
 
 SOURCES: dict[str, list[tuple]] = {
     "serial_killers": [(W + "List_of_serial_killers_in_the_United_States",
-                        "table_col", {"col": 0, "table_selector": "table"})],
-#}
-#SOURCES2: dict[str, list[tuple]] = {
+                        "table_col",
+                        {"col": 0, "table_selector": "table",
+                         "swap_on_comma": True, "scope": "soup"})],
     "board_games": [(W + "List_of_board_games", "links", {})],
     "cocktails": [(W + "List_of_cocktails", "links", {}),
                   (W + "IBA_official_cocktail", "links", {})],

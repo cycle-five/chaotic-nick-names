@@ -79,3 +79,31 @@ def test_extract_table_col_picks_chosen_column():
 def test_extract_table_col_defaults_to_first_column():
     got = extract_table_col(TABLE_HTML, {})
     assert got == ["1", "2", "3"]
+
+
+COMMA_TABLE_HTML = """
+<html><body><div class="mw-parser-output">
+<table>
+  <tr><th>Name</th><th>Notes</th></tr>
+  <tr><td>Ables, Tony</td><td>x</td></tr>
+  <tr><td><a href="/wiki/Rodney_Alcala">Alcala, Rodney</a></td><td>x</td></tr>
+  <tr><td>SingleName</td><td>x</td></tr>
+</table>
+</div></body></html>
+"""
+
+
+def test_extract_table_col_swap_on_comma():
+    got = extract_table_col(
+        COMMA_TABLE_HTML,
+        {"col": 0, "table_selector": "table", "swap_on_comma": True},
+    )
+    assert got == ["Tony Ables", "Rodney Alcala", "SingleName"]
+
+
+def test_extract_table_col_no_swap_by_default():
+    got = extract_table_col(
+        COMMA_TABLE_HTML,
+        {"col": 0, "table_selector": "table"},
+    )
+    assert got == ["Ables, Tony", "Alcala, Rodney", "SingleName"]
