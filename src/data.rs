@@ -25,6 +25,19 @@ pub fn builtin_category_names() -> Vec<String> {
     names
 }
 
+/// Category names that are NSFW / 18+. They remain in the catalog and can be
+/// invoked explicitly (e.g. `/randomize category:serial_killers`) but are
+/// excluded from random-pool selection by default — see
+/// `randomize::pick_random_category`. Listed names MUST exist as real
+/// categories in `categories.json` (enforced by a test below); add an entry
+/// here in the same PR that adds the category's data.
+pub const NSFW: &[&str] = &[];
+
+/// Case-insensitive membership test against [`NSFW`].
+pub fn is_nsfw(name: &str) -> bool {
+    NSFW.iter().any(|n| n.eq_ignore_ascii_case(name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -33,6 +46,29 @@ mod tests {
     fn builtin_categories_is_non_empty() {
         let cats = builtin_categories();
         assert!(!cats.is_empty());
+    }
+
+    #[test]
+    fn nsfw_names_are_real_categories() {
+        let cats = builtin_categories();
+        for name in NSFW {
+            assert!(
+                cats.contains_key(*name),
+                "NSFW entry '{}' is not a real category in categories.json",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn is_nsfw_is_case_insensitive() {
+        // Vacuously true while NSFW is empty; exercises the predicate so any
+        // future addition is regression-tested for casing.
+        for name in NSFW {
+            assert!(is_nsfw(name));
+            assert!(is_nsfw(&name.to_uppercase()));
+        }
+        assert!(!is_nsfw("definitely_not_a_real_nsfw_category_zzz"));
     }
 
     #[test]
