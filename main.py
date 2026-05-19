@@ -5,6 +5,7 @@ Loads curated seed lists already committed in src/categories.json, scrapes
 Wikipedia on top of them, merges without ever dropping seeds, and rewrites
 the file. Run: `uv run python main.py`. Proxy via SCRAPER_PROXY_URL env.
 """
+import argparse
 import json
 import os
 import random
@@ -96,7 +97,15 @@ _BAD_HREF = ("File:", "Category:", "Help:", "Wikipedia:",
 def _content(html: str) -> Tag | BeautifulSoup:
     """Return the article body with nav/ref/see-also chrome removed."""
     soup = BeautifulSoup(html, "lxml")
-    body = soup.select_one("div.mw-parser-output") or soup
+    # `mw-parser-output` is the article body wrapper on essentially every
+    # Wikipedia content page; `mw-content-text` is the broader outer wrapper
+    # for the rare page that lacks `mw-parser-output`. Fall back to the whole
+    # document only as a last resort.
+    body = (
+        soup.select_one("div.mw-parser-output")
+        or soup.select_one("div.mw-content-text")
+        or soup
+    )
     for sel in _EXCLUDE:
         for el in body.select(sel):
             el.decompose()
@@ -136,11 +145,33 @@ def extract_bullets(html: str, options: dict | None = None) -> list[str]:
 
 
 def extract_table_col(html: str, options: dict | None = None) -> list[str]:
-    """Column `options['col']` (default 0) of each wikitable data row."""
-    col = (options or {}).get("col", 0)
-    body = _content(html)
+    """Column `options['col']` (default 0) of each wikitable data row.
+
+    Source-specific overrides via `options`:
+      * `"table_selector"`: CSS selector for the data table when it isn't a
+        `.wikitable` (default `"table.wikitable"`).
+      * `"swap_on_comma"`: if true, rewrite cell text containing `", "` from
+        `"Last, First"` to `"First Last"` BEFORE `clean_name` strips the
+        comma. Use for Wikipedia tables sorted surname-first
+        (e.g. `List_of_serial_killers_in_the_United_States`).
+      * `"scope": "soup"`: bypass `_content`'s `mw-parser-output` scoping and
+        operate on the whole document (still applies `_EXCLUDE` to strip
+        nav/ref chrome). Needed for the rare page whose data table sits
+        outside `mw-parser-output`.
+    """
+    opts = options or {}
+    col = opts.get("col", 0)
+    table_sel = opts.get("table_selector", "table.wikitable")
+    swap = bool(opts.get("swap_on_comma"))
+    if opts.get("scope") == "soup":
+        body = BeautifulSoup(html, "lxml")
+        for sel in _EXCLUDE:
+            for el in body.select(sel):
+                el.decompose()
+    else:
+        body = _content(html)
     out: list[str] = []
-    for table in body.select("table.wikitable"):
+    for table in body.select(table_sel):
         for tr in table.select("tr"):
             cells = tr.find_all(["td", "th"], recursive=False)
             if not cells or all(c.name == "th" for c in cells):
@@ -149,8 +180,12 @@ def extract_table_col(html: str, options: dict | None = None) -> list[str]:
                 continue
             cell = cells[col]
             a = cell.find("a")
-            out.append(a.get_text(" ", strip=True) if a
-                       else cell.get_text(" ", strip=True))
+            text = (a.get_text(" ", strip=True) if a
+                    else cell.get_text(" ", strip=True))
+            if swap and ", " in text:
+                last, first = text.split(", ", 1)
+                text = f"{first} {last}"
+            out.append(text)
     return out
 
 
@@ -191,6 +226,10 @@ STRATEGIES = {
 }
 
 SOURCES: dict[str, list[tuple]] = {
+    "serial_killers": [(W + "List_of_serial_killers_in_the_United_States",
+                        "table_col",
+                        {"col": 0, "table_selector": "table",
+                         "swap_on_comma": True, "scope": "soup"})],
     "board_games": [(W + "List_of_board_games", "links", {})],
     "cocktails": [(W + "List_of_cocktails", "links", {}),
                   (W + "IBA_official_cocktail", "links", {})],
@@ -234,7 +273,7 @@ MIN_TARGET = {
     "fictional_villainesses": 150, "hard_things": 100, "constellations": 88,
     "spices": 300, "amusement_parks": 200, "chemical_compounds": 150,
     "colors": 300, "dinosaurs": 300, "elements": 118, "fruits": 200,
-    "planets": 13,
+    "planets": 13, "serial_killers": 100,
 }
 
 
@@ -243,6 +282,7 @@ def scrape_category(session: requests.Session, name: str) -> list[str]:
     for (url, strat, opts) in SOURCES.get(name, []):
         html = fetch(session, url)
         if html is None:
+            print(f"❌ skipping {url} due to html being None")
             continue
         try:
             raw.extend(STRATEGIES[strat](html, opts))
@@ -252,12 +292,27 @@ def scrape_category(session: requests.Session, name: str) -> list[str]:
     return dedupe_keep_first(cleaned)
 
 
-def main() -> None:
+def main(only: list[str] | None = None) -> None:
     data = json.loads(CATEGORIES_PATH.read_text(encoding="utf-8"))
+
+    all_cats = sorted(set(data) | set(SOURCES))
+    if only:
+        requested = set(only)
+        unknown = sorted(requested - set(all_cats))
+        if unknown:
+            print(f"⚠️  Unknown categories ignored: {', '.join(unknown)}")
+        cats = [c for c in all_cats if c in requested]
+        if not cats:
+            print("❌ No known categories selected; nothing to do.")
+            return
+        print(f"▶️  Updating only: {', '.join(cats)}")
+    else:
+        cats = all_cats
+
     session = get_session()
     report: dict[str, tuple[int, int, int]] = {}
 
-    for cat in sorted(set(data) | set(SOURCES)):
+    for cat in cats:
         seed = dedupe_keep_first(
             [s for s in (clean_name(x) for x in data.get(cat, [])) if s])
         scraped = scrape_category(session, cat)
@@ -282,4 +337,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Populate src/categories.json from curated seeds + "
+        "Wikipedia scraping.")
+    parser.add_argument(
+        "--only",
+        nargs="+",
+        metavar="CATEGORY",
+        help="Only update these categories (space-separated); all other "
+        "categories in src/categories.json are left unchanged.")
+    args = parser.parse_args()
+    main(only=args.only)

@@ -31,7 +31,7 @@ pub fn builtin_category_names() -> Vec<String> {
 /// `randomize::pick_random_category`. Listed names MUST exist as real
 /// categories in `categories.json` (enforced by a test below); add an entry
 /// here in the same PR that adds the category's data.
-pub const NSFW: &[&str] = &[];
+pub const NSFW: &[&str] = &["serial_killers"];
 
 /// Case-insensitive membership test against [`NSFW`].
 pub fn is_nsfw(name: &str) -> bool {

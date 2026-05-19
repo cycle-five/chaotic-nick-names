@@ -48,3 +48,22 @@ def test_main_merges_seeds_with_scrape(tmp_path, monkeypatch):
     assert "Sazerac" in data["cocktails"]                     # new added
     assert data["cocktails"].count("Negroni") == 1            # dup dropped
     assert "ab" not in data["cocktails"]                       # junk cleaned
+
+
+def test_main_only_updates_selected_categories(tmp_path, monkeypatch):
+    cats = tmp_path / "categories.json"
+    cats.write_text(
+        json.dumps({"cocktails": ["Negroni"], "spices": ["Cumin"]}),
+        encoding="utf-8")
+    monkeypatch.setattr(m, "CATEGORIES_PATH", cats)
+    monkeypatch.setattr(m, "get_session", lambda: object())
+    monkeypatch.setattr(
+        m, "scrape_category",
+        lambda session, name: ["Sazerac"] if name == "cocktails"
+        else ["Sumac"])
+
+    m.main(only=["cocktails"])
+
+    data = json.loads(cats.read_text(encoding="utf-8"))
+    assert "Sazerac" in data["cocktails"]      # selected category updated
+    assert data["spices"] == ["Cumin"]          # untouched category preserved
