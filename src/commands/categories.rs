@@ -91,25 +91,38 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
 
     let builtin_names = data::builtin_category_names();
 
-    let mut lines: Vec<String> = all_cats
-        .iter()
-        .map(|(name, items)| {
-            let tag = if builtin_names.contains(name) {
-                ""
-            } else {
-                " *(custom)*"
-            };
-            format!("• **{}**{} — {} name(s)", name, tag, items.len())
-        })
-        .collect();
-    lines.sort();
+    let format_line = |name: &String, items: &Vec<String>| {
+        let tag = if builtin_names.contains(name) {
+            ""
+        } else {
+            " *(custom)*"
+        };
+        format!("• **{}**{} — {} name(s)", name, tag, items.len())
+    };
 
-    ctx.say(format!(
-        "**Available categories** ({} total)\n{}",
-        all_cats.len(),
-        lines.join("\n")
-    ))
-    .await?;
+    let mut standard: Vec<String> = Vec::new();
+    let mut nsfw: Vec<String> = Vec::new();
+    for (name, items) in &all_cats {
+        let line = format_line(name, items);
+        if data::is_nsfw(name) {
+            nsfw.push(line);
+        } else {
+            standard.push(line);
+        }
+    }
+    standard.sort();
+    nsfw.sort();
+
+    let mut out = format!("**Available categories** ({} total)", all_cats.len());
+    if !standard.is_empty() {
+        out.push_str("\n**Standard**\n");
+        out.push_str(&standard.join("\n"));
+    }
+    if !nsfw.is_empty() {
+        out.push_str("\n\n**🔞 NSFW (18+)** — only chosen if requested explicitly\n");
+        out.push_str(&nsfw.join("\n"));
+    }
+    ctx.say(out).await?;
 
     Ok(())
 }

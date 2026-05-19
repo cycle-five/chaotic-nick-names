@@ -337,14 +337,28 @@ pub fn resolve_category(
         };
         Err(format!("Unknown category `{req}`. Available: {available}").into())
     } else {
-        use rand::seq::IteratorRandom;
         let mut rng = rand::rng();
-        let (k, v) = categories
-            .iter()
-            .choose(&mut rng)
+        let (k, v) = pick_random_category(categories, crate::data::is_nsfw, &mut rng)
             .ok_or("No categories available")?;
         Ok((k.clone(), v.clone()))
     }
+}
+
+/// Choose a random `(category_name, names)` pair, skipping any category for
+/// which `is_excluded(name)` returns true.
+///
+/// Factored out of [`resolve_category`] so the exclusion logic is testable
+/// independently of the live `data::is_nsfw` const.
+pub fn pick_random_category<'a>(
+    categories: &'a std::collections::HashMap<String, Vec<String>>,
+    is_excluded: impl Fn(&str) -> bool,
+    rng: &mut impl rand::Rng,
+) -> Option<(&'a String, &'a Vec<String>)> {
+    use rand::seq::IteratorRandom;
+    categories
+        .iter()
+        .filter(|(name, _)| !is_excluded(name))
+        .choose(rng)
 }
 
 /// Truncate a potential nickname to Discord's 32-character limit,
@@ -540,5 +554,59 @@ mod tests {
     fn resolve_category_empty_map_returns_error() {
         let cats: HashMap<String, Vec<String>> = HashMap::new();
         assert!(resolve_category(&cats, None).is_err());
+    }
+
+    // ── NSFW exclusion (pick_random_category) ──────────────────────────────
+
+    fn cats_with_nsfw() -> HashMap<String, Vec<String>> {
+        let mut m = HashMap::new();
+        m.insert("scientists".into(), vec!["Einstein".into()]);
+        m.insert("serial_killers".into(), vec!["Some Name".into()]);
+        m
+    }
+
+    #[test]
+    fn pick_random_category_excludes_nsfw_names() {
+        let cats = cats_with_nsfw();
+        let mut rng = rand::rng();
+        // Run many times; the NSFW name must never appear in the random pool.
+        for _ in 0..200 {
+            let (name, _) = pick_random_category(&cats, |n| n == "serial_killers", &mut rng)
+                .expect("should pick a non-NSFW category");
+            assert_ne!(name, "serial_killers");
+        }
+    }
+
+    #[test]
+    fn pick_random_category_returns_none_when_all_excluded() {
+        let cats = cats_with_nsfw();
+        let mut rng = rand::rng();
+        assert!(pick_random_category(&cats, |_| true, &mut rng).is_none());
+    }
+
+    #[test]
+    fn pick_random_category_no_exclusions_picks_anything() {
+        let cats = cats_with_nsfw();
+        let mut rng = rand::rng();
+        let (name, _) = pick_random_category(&cats, |_| false, &mut rng).unwrap();
+        assert!(cats.contains_key(name));
+    }
+
+    #[test]
+    fn resolve_category_random_skips_nsfw_with_live_is_nsfw() {
+        // With production is_nsfw (currently empty), random selection works
+        // exactly as before — sanity-check that the wiring didn't break it.
+        let cats = sample_categories();
+        let (name, _) = resolve_category(&cats, None).unwrap();
+        assert!(cats.contains_key(&name));
+    }
+
+    #[test]
+    fn resolve_category_explicit_request_allows_nsfw() {
+        // Even if "serial_killers" were declared NSFW in prod, an explicit
+        // request for it must be honoured (user opt-in).
+        let cats = cats_with_nsfw();
+        let (name, _) = resolve_category(&cats, Some("serial_killers")).unwrap();
+        assert_eq!(name, "serial_killers");
     }
 }
