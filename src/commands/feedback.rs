@@ -15,8 +15,6 @@ const RECENT_DAYS: i32 = 30;
 /// minutes, so we stay well under that.
 const SESSION_TIMEOUT: Duration = Duration::from_secs(300);
 
-const NOTE_MAX_LEN: usize = 140;
-
 /// Modal opened when the user clicks "Add note". Pre-filled with whatever
 /// note the user typed earlier in the same session, if any.
 #[derive(Debug, poise::Modal)]
@@ -119,17 +117,38 @@ pub async fn give_feedback(
         note: None,
     };
 
+    // Each render closure returns an owned builder so the inner FeedbackView
+    // (which borrows both the captured refs and the per-call state ref)
+    // doesn't leak its lifetimes into the caller. Two closures rather than
+    // one because `to_reply()` and `to_response_message()` produce distinct
+    // builder types.
+    let render_reply = |s: &FeedbackState| {
+        FeedbackView {
+            nc: &nc,
+            state: s,
+            id_relevance: &id_relevance,
+            id_nsfw: &id_nsfw,
+            id_note: &id_note,
+            id_submit: &id_submit,
+            id_cancel: &id_cancel,
+        }
+        .to_reply()
+    };
+    let render_response = |s: &FeedbackState| {
+        FeedbackView {
+            nc: &nc,
+            state: s,
+            id_relevance: &id_relevance,
+            id_nsfw: &id_nsfw,
+            id_note: &id_note,
+            id_submit: &id_submit,
+            id_cancel: &id_cancel,
+        }
+        .to_response_message()
+    };
+
     // Initial ephemeral render.
-    let reply = build_reply(
-        &nc,
-        &state,
-        &id_relevance,
-        &id_nsfw,
-        &id_note,
-        &id_submit,
-        &id_cancel,
-    );
-    let prompt = ctx.send(reply.ephemeral(true)).await?;
+    let prompt = ctx.send(render_reply(&state).ephemeral(true)).await?;
     let msg_id = prompt.message().await?.id;
     let parent_ctx: crate::Context<'_> = poise::Context::Application(ctx);
 
@@ -154,34 +173,8 @@ pub async fn give_feedback(
                     _ => Relevance::Unset,
                 };
             }
-            mci.create_response(
-                ctx.serenity_context(),
-                serenity::CreateInteractionResponse::UpdateMessage(build_response_message(
-                    &nc,
-                    &state,
-                    &id_relevance,
-                    &id_nsfw,
-                    &id_note,
-                    &id_submit,
-                    &id_cancel,
-                )),
-            )
-            .await?;
         } else if cid == id_nsfw {
             state.nsfw_flag = !state.nsfw_flag;
-            mci.create_response(
-                ctx.serenity_context(),
-                serenity::CreateInteractionResponse::UpdateMessage(build_response_message(
-                    &nc,
-                    &state,
-                    &id_relevance,
-                    &id_nsfw,
-                    &id_note,
-                    &id_submit,
-                    &id_cancel,
-                )),
-            )
-            .await?;
         } else if cid == id_note {
             // Open a modal pre-filled with the existing note. The modal
             // submission auto-acks; we then have to repaint the original
@@ -200,18 +193,12 @@ pub async fn give_feedback(
                 state.note = note
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty());
-                let refreshed = build_reply(
-                    &nc,
-                    &state,
-                    &id_relevance,
-                    &id_nsfw,
-                    &id_note,
-                    &id_submit,
-                    &id_cancel,
-                );
-                prompt.edit(parent_ctx, refreshed.ephemeral(true)).await?;
+                prompt
+                    .edit(parent_ctx, render_reply(&state).ephemeral(true))
+                    .await?;
             }
             // If the modal was dismissed (result == None), leave state alone.
+            continue;
         } else if cid == id_submit {
             db::upsert_feedback(
                 &ctx.data.db,
@@ -254,9 +241,19 @@ pub async fn give_feedback(
             )
             .await?;
             return Ok(());
+        } else {
+            // Unknown custom_id (shouldn't fire with invocation-scoped IDs).
+            continue;
         }
-        // Unknown custom_ids are ignored (defensive; shouldn't fire with
-        // invocation-scoped IDs).
+
+        // Reached by id_relevance and id_nsfw branches only — the others
+        // diverged via `continue` or `return` after handling their own
+        // response. Repaint the prompt with the just-mutated state.
+        mci.create_response(
+            ctx.serenity_context(),
+            serenity::CreateInteractionResponse::UpdateMessage(render_response(&state)),
+        )
+        .await?;
     }
 
     // Stream ended without an explicit submit / cancel ⇒ session timed out.
@@ -297,16 +294,11 @@ fn body_text(nc: &db::RecentNickChange, state: &FeedbackState) -> String {
         "• NSFW miscategorized flag: {}\n",
         if state.nsfw_flag { "🔞 yes" } else { "—" }
     ));
-    let note_preview = state.note.as_deref().unwrap_or("");
-    if note_preview.is_empty() {
-        s.push_str("• Note: *(none)*\n");
-    } else {
-        let truncated = if note_preview.len() > NOTE_MAX_LEN {
-            format!("{}…", &note_preview[..NOTE_MAX_LEN])
-        } else {
-            note_preview.to_string()
-        };
-        s.push_str(&format!("• Note: {truncated}\n"));
+    match state.note.as_deref() {
+        // The modal enforces max_length=140 server-side, so anything we see
+        // here already fits — no manual truncation needed.
+        None | Some("") => s.push_str("• Note: *(none)*\n"),
+        Some(note) => s.push_str(&format!("• Note: {note}\n")),
     }
     s
 }
@@ -371,46 +363,51 @@ fn components(
     ]
 }
 
-fn build_reply(
-    nc: &db::RecentNickChange,
-    state: &FeedbackState,
-    id_relevance: &str,
-    id_nsfw: &str,
-    id_note: &str,
-    id_submit: &str,
-    id_cancel: &str,
-) -> poise::CreateReply {
-    poise::CreateReply::default()
-        .content(body_text(nc, state))
-        .components(components(
-            state,
-            id_relevance,
-            id_nsfw,
-            id_note,
-            id_submit,
-            id_cancel,
-        ))
+/// A bundle of references that together render the feedback prompt. Holds
+/// just the inputs `body_text` and `components` need, so callers don't have
+/// to thread seven arguments through every `build_*` site. Methods provide
+/// the two builders (`poise::CreateReply` for the initial ephemeral send and
+/// for `ReplyHandle::edit`, `CreateInteractionResponseMessage` for
+/// component-interaction `UpdateMessage` responses).
+struct FeedbackView<'a> {
+    nc: &'a db::RecentNickChange,
+    state: &'a FeedbackState,
+    id_relevance: &'a str,
+    id_nsfw: &'a str,
+    id_note: &'a str,
+    id_submit: &'a str,
+    id_cancel: &'a str,
 }
 
-fn build_response_message(
-    nc: &db::RecentNickChange,
-    state: &FeedbackState,
-    id_relevance: &str,
-    id_nsfw: &str,
-    id_note: &str,
-    id_submit: &str,
-    id_cancel: &str,
-) -> serenity::CreateInteractionResponseMessage {
-    serenity::CreateInteractionResponseMessage::new()
-        .content(body_text(nc, state))
-        .components(components(
-            state,
-            id_relevance,
-            id_nsfw,
-            id_note,
-            id_submit,
-            id_cancel,
-        ))
+impl FeedbackView<'_> {
+    fn content(&self) -> String {
+        body_text(self.nc, self.state)
+    }
+
+    fn rows(&self) -> Vec<serenity::CreateActionRow> {
+        // Calls the free `components` fn — `self.rows()` would be ambiguous
+        // with this method name otherwise.
+        components(
+            self.state,
+            self.id_relevance,
+            self.id_nsfw,
+            self.id_note,
+            self.id_submit,
+            self.id_cancel,
+        )
+    }
+
+    fn to_reply(&self) -> poise::CreateReply {
+        poise::CreateReply::default()
+            .content(self.content())
+            .components(self.rows())
+    }
+
+    fn to_response_message(&self) -> serenity::CreateInteractionResponseMessage {
+        serenity::CreateInteractionResponseMessage::new()
+            .content(self.content())
+            .components(self.rows())
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
