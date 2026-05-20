@@ -327,13 +327,7 @@ mod tests {
         let mut gs = GuildState::new();
         gs.custom_categories
             .insert("mycat".to_string(), vec!["A".to_string()]);
-        gs.record_change(
-            1,
-            "user".to_string(),
-            None,
-            "A",
-            "mycat".to_string(),
-        );
+        gs.record_change(1, "user".to_string(), None, "A", "mycat".to_string());
         assert!(gs.stats.category_usage.contains_key("mycat"));
         gs.remove_custom_category("mycat");
         assert!(!gs.stats.category_usage.contains_key("mycat"));
