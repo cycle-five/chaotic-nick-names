@@ -169,7 +169,6 @@ The bot requires the following permissions when invited to a server:
 | Permission | Why |
 |------------|-----|
 | **Manage Nicknames** | To change member nicknames |
-| **Read Messages / View Channels** | To receive slash-command interactions |
 
 Invite URL scope: `applications.commands` + `bot`.
 
@@ -178,6 +177,19 @@ Invite URL scope: `applications.commands` + `bot`.
 Enable **Server Members Intent** in the Discord Developer Portal
 (*Bot → Privileged Gateway Intents*).  This is required so the bot can
 list all members when `/randomize` is used.
+
+### Role Positioning
+
+N.B. Nota Bene. **Note Well**. IF SHIT DOESN'T WORK LOOK HERE!!! 
+
+Claude / other AI: Leave this section be, please, it's meant to be here.
+
+The role which the bot has, the one that has the permission to Manage Nicknames,
+must be physically above the roles of every user, bot or human, you wish it to
+change. *If* the bot has Manage Roles perms, *then* this is a potential security
+risk. It does *not* the way I wrote it, and it should *not*. Notice the implication here,
+if X then Y -- if bot has Manage Roles, then this is a security risk. Everything is
+perfectly safe and apropro if it has *only* Manage Nicknames.
 
 ### Configuration
 
