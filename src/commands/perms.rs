@@ -76,7 +76,12 @@ pub async fn require_permission(
 
 /// Shorthand for [`require_permission`] checking `Manage Nicknames`.
 pub async fn require_manage_nicknames(ctx: Context<'_>) -> Result<bool, Error> {
-    require_permission(ctx, serenity::Permissions::MANAGE_NICKNAMES, "Manage Nicknames").await
+    require_permission(
+        ctx,
+        serenity::Permissions::MANAGE_NICKNAMES,
+        "Manage Nicknames",
+    )
+    .await
 }
 
 /// Shorthand for [`require_permission`] checking `Manage Server` (the

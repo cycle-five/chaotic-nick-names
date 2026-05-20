@@ -1,4 +1,5 @@
 use std::time::Duration;
+use std::fmt::Write;
 
 use poise::serenity_prelude::{self as serenity, futures::StreamExt};
 
@@ -13,7 +14,7 @@ const RECENT_DAYS: i32 = 30;
 /// Maximum time the ephemeral feedback session waits for further clicks
 /// before timing out. Discord's interaction token also limits this to 15
 /// minutes, so we stay well under that.
-const SESSION_TIMEOUT: Duration = Duration::from_secs(300);
+const SESSION_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Modal opened when the user clicks "Add note". Pre-filled with whatever
 /// note the user typed earlier in the same session, if any.
@@ -63,6 +64,7 @@ struct FeedbackState {
 /// optional free-text note) and stores it in the `feedback` table keyed by
 /// the originating `nick_changes` row.
 #[poise::command(context_menu_command = "Give feedback on nickname", guild_only)]
+#[allow(clippy::too_many_lines)]
 pub async fn give_feedback(
     ctx: poise::ApplicationContext<'_, Data, Error>,
     user: serenity::User,
@@ -84,22 +86,19 @@ pub async fn give_feedback(
     // The DB has the full history; the in-memory deque is capped at 200 so
     // a bulk randomize on a large guild can evict assignments we still want
     // to surface here. Query directly.
-    let nc = match db::find_recent_nick_change(&ctx.data.db, guild_id, user.id.get(), RECENT_DAYS)
-        .await?
-    {
-        Some(row) => row,
-        None => {
-            ctx.send(
-                poise::CreateReply::default()
-                    .content(format!(
-                        "I haven't assigned you a nickname in the last {RECENT_DAYS} days. \
-                         Try `/assign_random_nick` first, then come back to give feedback."
-                    ))
-                    .ephemeral(true),
-            )
-            .await?;
-            return Ok(());
-        }
+    #[allow(clippy::manual_let_else)]
+    let nc = if let Some(row) = db::find_recent_nick_change(&ctx.data.db, guild_id, user.id.get(), RECENT_DAYS)
+        .await? { row } else {
+        ctx.send(
+            poise::CreateReply::default()
+                .content(format!(
+                    "I haven't assigned you a nickname in the last {RECENT_DAYS} days. \
+                     Try `/assign_random_nick` first, then come back to give feedback."
+                ))
+                .ephemeral(true),
+        )
+        .await?;
+        return Ok(());
     };
 
     // Scope every custom_id to this command invocation so other in-flight
@@ -186,13 +185,11 @@ pub async fn give_feedback(
                 ctx,
                 mci,
                 Some(prefilled),
-                Some(Duration::from_secs(120)),
+                Some(Duration::from_mins(2)),
             )
             .await?;
             if let Some(NoteModal { note }) = result {
-                state.note = note
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
+                state.note = note.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
                 prompt
                     .edit(parent_ctx, render_reply(&state).ephemeral(true))
                     .await?;
@@ -215,7 +212,7 @@ pub async fn give_feedback(
                 user.id.get(),
                 state.relevance,
                 state.nsfw_flag,
-                state.note.as_deref().map(str::len).unwrap_or(0),
+                state.note.as_deref().map_or(0, str::len),
             );
             mci.create_response(
                 ctx.serenity_context(),
@@ -284,26 +281,26 @@ fn body_text(nc: &db::RecentNickChange, state: &FeedbackState) -> String {
         "**Feedback on:** `{}` *({})*  · changed {}\n\n",
         nc.new_nick, nc.category, when
     );
-    s.push_str(match state.relevance {
+    let _ = write!(s, "{}", match state.relevance {
         Relevance::Unset => "• Relevance: *(not selected)*\n",
         Relevance::Yes => "• Relevance: ✅ relevant\n",
         Relevance::No => "• Relevance: ❌ not relevant\n",
         Relevance::Skip => "• Relevance: ⏭️ skipped\n",
     });
-    s.push_str(&format!(
-        "• NSFW miscategorized flag: {}\n",
+    let _ = writeln!(s,
+        "• NSFW miscategorized flag: {}",
         if state.nsfw_flag { "🔞 yes" } else { "—" }
-    ));
+    );
     match state.note.as_deref() {
         // The modal enforces max_length=140 server-side, so anything we see
         // here already fits — no manual truncation needed.
-        None | Some("") => s.push_str("• Note: *(none)*\n"),
-        Some(note) => s.push_str(&format!("• Note: {note}\n")),
+        None | Some("") => { let _ = writeln!(s, "• Note: *(none)*"); },
+        Some(note) => { let _ = writeln!(s, "• Note: {note}"); },
     }
     s
 }
 
-/// Build all four component rows. The StringSelect's `default_selection`
+/// Build all four component rows. The `StringSelect`'s `default_selection`
 /// reflects current state so the UI matches what the user already chose;
 /// the NSFW button label/style and the Note button label flip with state.
 fn components(
@@ -315,7 +312,8 @@ fn components(
     id_cancel: &str,
 ) -> Vec<serenity::CreateActionRow> {
     let opt = |value: &str, label: &str, this: Relevance| {
-        serenity::CreateSelectMenuOption::new(label, value).default_selection(state.relevance == this)
+        serenity::CreateSelectMenuOption::new(label, value)
+            .default_selection(state.relevance == this)
     };
     let select = serenity::CreateSelectMenu::new(
         id_relevance,

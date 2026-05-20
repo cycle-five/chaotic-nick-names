@@ -94,7 +94,7 @@ pub async fn nick(
             user.id.get(),
             user.name.clone(),
             old_nick.clone(),
-            new_nick.clone(),
+            &new_nick.clone(),
             cat_name.clone(),
         );
         let gs = data.guild(guild_id).unwrap();

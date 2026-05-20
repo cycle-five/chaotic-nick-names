@@ -1,9 +1,22 @@
 use std::time::Duration;
+// for choose
+use rand::seq::IndexedRandom;
 
 use poise::serenity_prelude as serenity;
 
 use crate::commands::perms::require_manage_nicknames;
 use crate::{Context, Error};
+// ── Assign names (without-replacement draw, holding write lock briefly) ────
+// Each tuple is (member, new_nick, category_used).
+// Only the fields we actually need downstream — avoids cloning the whole
+// (large) serenity::Member per member.
+struct Assignment {
+    user_id: serenity::UserId,
+    user_name: String,
+    old_nick: Option<String>,
+    new_nick: String,
+    category: String,
+}
 
 /// Assign a random nickname to every member of the server.
 ///
@@ -14,6 +27,7 @@ use crate::{Context, Error};
     guild_only,
     description_localized("en-US", "Assign random nicknames to every server member")
 )]
+#[allow(clippy::too_many_lines)]
 pub async fn randomize(
     ctx: Context<'_>,
     #[description = "Category to pick names from (omit for a random category)"]
@@ -127,17 +141,6 @@ pub async fn randomize(
         return Ok(());
     }
 
-    // ── Assign names (without-replacement draw, holding write lock briefly) ────
-    // Each tuple is (member, new_nick, category_used).
-    // Only the fields we actually need downstream — avoids cloning the whole
-    // (large) serenity::Member per member.
-    struct Assignment {
-        user_id: serenity::UserId,
-        user_name: String,
-        old_nick: Option<String>,
-        new_nick: String,
-        category: String,
-    }
 
     let assignments: Vec<Assignment> = {
         // In chaos mode collect the category keys once (O(C)) so per-member
@@ -155,7 +158,6 @@ pub async fn randomize(
         // lock and dropped when this block ends, so it never lives across an
         // `.await` — that is what keeps this command future `Send` (poise boxes
         // and spawns it). The closure below contains no await points.
-        use rand::seq::IndexedRandom;
         let mut rng = rand::rng();
         members
             .iter()
@@ -226,7 +228,7 @@ pub async fn randomize(
                             a.user_id.get(),
                             a.user_name.clone(),
                             a.old_nick.clone(),
-                            a.new_nick.clone(),
+                            &a.new_nick.clone(),
                             a.category.clone(),
                         );
                     }

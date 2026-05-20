@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+// for choose
+use rand::seq::IndexedRandom;
 
 use chrono::{DateTime, Utc};
 use poise::serenity_prelude::GuildId;
@@ -87,7 +89,6 @@ impl GuildState {
             available = names.iter().collect();
         }
 
-        use rand::seq::IndexedRandom;
         let mut rng = rand::rng();
         let picked = (*available.choose(&mut rng)?).clone();
 
@@ -157,7 +158,7 @@ impl GuildState {
         user_id: u64,
         user_name: String,
         old_nick: Option<String>,
-        new_nick: String,
+        new_nick: &str,
         category: String,
     ) {
         self.add_history(HistoryEntry {
@@ -165,7 +166,7 @@ impl GuildState {
             user_id,
             user_name,
             old_nick,
-            new_nick: new_nick.clone(),
+            new_nick: new_nick.to_string(),
             category: category.clone(),
         });
         self.stats.total_changes += 1;

@@ -2,6 +2,7 @@ use poise::serenity_prelude as serenity;
 
 use crate::commands::perms::require_manage_guild;
 use crate::{data, Context, Error};
+use std::fmt::Write;
 
 /// Validate a category key: must be non-empty, start with a letter, and contain
 /// only letters, digits, or underscores.
@@ -68,6 +69,7 @@ pub fn parse_category_csv(text: &str) -> (Vec<(String, Vec<String>)>, Vec<String
     subcommands("list", "add", "remove", "import"),
     description_localized("en-US", "Manage nickname categories")
 )]
+#[allow(clippy::unused_async)]
 pub async fn categories(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
@@ -316,22 +318,22 @@ pub async fn import(
             .iter()
             .map(|(cat, n)| format!("• **{cat}** ({n} name(s))"))
             .collect();
-        reply.push_str(&format!(
+        let _ = write!(reply,
             "✅ Imported **{}** categor{}:\n{}",
             added.len(),
             if added.len() == 1 { "y" } else { "ies" },
             summary.join("\n")
-        ));
+        );
     }
     if !errors.is_empty() {
         if !reply.is_empty() {
             reply.push('\n');
         }
-        reply.push_str(&format!(
+        let _ = write!(reply,
             "⚠️ **{}** line(s) skipped:\n{}",
             errors.len(),
             errors.join("\n")
-        ));
+        );
     }
     if reply.is_empty() {
         reply = "❌ No valid categories found in the file.".to_string();

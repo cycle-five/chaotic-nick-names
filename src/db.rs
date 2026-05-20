@@ -50,7 +50,7 @@ pub async fn load_all_guilds(pool: &PgPool) -> Result<Vec<(GuildId, GuildState)>
 
     let mut result = Vec::new();
     for raw_id in guild_ids {
-        let guild_id = GuildId::new(raw_id as u64);
+        let guild_id = GuildId::new(raw_id.cast_unsigned());
         let gs = load_guild(pool, guild_id).await?;
         result.push((guild_id, gs));
     }
@@ -58,7 +58,7 @@ pub async fn load_all_guilds(pool: &PgPool) -> Result<Vec<(GuildId, GuildState)>
 }
 
 async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx::Error> {
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
 
     // Custom categories
     let cat_rows = sqlx::query("SELECT name, items FROM custom_categories WHERE guild_id = $1")
@@ -106,7 +106,7 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
             let ts: chrono::DateTime<chrono::Utc> = r.get("changed_at");
             HistoryEntry {
                 timestamp: ts,
-                user_id: r.get::<i64, _>("user_id") as u64,
+                user_id: r.get::<i64, _>("user_id").cast_unsigned(),
                 user_name: r.get("user_name"),
                 old_nick: r.get("old_nick"),
                 new_nick: r.get("new_nick"),
@@ -125,8 +125,8 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
 
     let (total_changes, bulk_randomize_count) = match stats_row {
         Some(r) => (
-            r.get::<i64, _>("total_changes") as u64,
-            r.get::<i64, _>("bulk_randomize_count") as u64,
+            r.get::<i64, _>("total_changes").cast_unsigned(),
+            r.get::<i64, _>("bulk_randomize_count").cast_unsigned(),
         ),
         None => (0, 0),
     };
@@ -142,7 +142,7 @@ async fn load_guild(pool: &PgPool, guild_id: GuildId) -> Result<GuildState, sqlx
     for row in usage_rows {
         let cat: String = row.get("category_name");
         let count: i64 = row.get("usage_count");
-        category_usage.insert(cat, count as u64);
+        category_usage.insert(cat, count.cast_unsigned());
     }
 
     Ok(GuildState {
@@ -166,7 +166,7 @@ pub async fn upsert_custom_category(
     name: &str,
     items: &[String],
 ) -> Result<(), sqlx::Error> {
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     sqlx::query(
         r"
         INSERT INTO custom_categories (guild_id, name, items)
@@ -188,7 +188,7 @@ pub async fn delete_custom_category(
     guild_id: GuildId,
     name: &str,
 ) -> Result<(), sqlx::Error> {
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     sqlx::query("DELETE FROM custom_categories WHERE guild_id = $1 AND name = $2")
         .bind(gid)
         .bind(name)
@@ -204,7 +204,7 @@ pub async fn add_used_name(
     category: &str,
     name: &str,
 ) -> Result<(), sqlx::Error> {
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     sqlx::query(
         r"
         INSERT INTO used_names (guild_id, category_name, name)
@@ -229,7 +229,7 @@ pub async fn add_used_names_bulk(
     if pairs.is_empty() {
         return Ok(());
     }
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     let cats: Vec<String> = pairs.iter().map(|(c, _)| c.clone()).collect();
     let names: Vec<String> = pairs.iter().map(|(_, n)| n.clone()).collect();
     sqlx::query(
@@ -265,8 +265,8 @@ pub async fn insert_nick_changes_bulk(
     if rows.is_empty() {
         return Ok(());
     }
-    let gid = guild_id.get() as i64;
-    let uids: Vec<i64> = rows.iter().map(|r| r.user_id as i64).collect();
+    let gid = guild_id.get().cast_signed();
+    let uids: Vec<i64> = rows.iter().map(|r| r.user_id.cast_signed()).collect();
     let unames: Vec<String> = rows.iter().map(|r| r.user_name.clone()).collect();
     let olds: Vec<Option<String>> = rows.iter().map(|r| r.old_nick.clone()).collect();
     let news: Vec<String> = rows.iter().map(|r| r.new_nick.clone()).collect();
@@ -299,7 +299,7 @@ pub async fn increment_category_usage_bulk(
     if counts.is_empty() {
         return Ok(());
     }
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     let cats: Vec<String> = counts.iter().map(|(c, _)| c.clone()).collect();
     let deltas: Vec<i64> = counts.iter().map(|(_, n)| *n).collect();
     sqlx::query(
@@ -324,7 +324,7 @@ pub async fn clear_used_names(
     guild_id: GuildId,
     category: Option<&str>,
 ) -> Result<(), sqlx::Error> {
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     match category {
         Some(cat) => {
             sqlx::query("DELETE FROM used_names WHERE guild_id = $1 AND category_name = $2")
@@ -352,7 +352,7 @@ pub async fn original_nicks(
     guild_id: GuildId,
     user_id: Option<u64>,
 ) -> Result<Vec<(u64, Option<String>)>, sqlx::Error> {
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     let rows = match user_id {
         Some(uid) => {
             sqlx::query(
@@ -364,7 +364,7 @@ pub async fn original_nicks(
                 ",
             )
             .bind(gid)
-            .bind(uid as i64)
+            .bind(uid.cast_signed())
             .fetch_all(pool)
             .await?
         }
@@ -387,7 +387,7 @@ pub async fn original_nicks(
         .into_iter()
         .map(|r| {
             (
-                r.get::<i64, _>("user_id") as u64,
+                r.get::<i64, _>("user_id").cast_unsigned(),
                 r.get::<Option<String>, _>("old_nick"),
             )
         })
@@ -404,8 +404,8 @@ pub async fn insert_nick_change(
     new_nick: &str,
     category: &str,
 ) -> Result<(), sqlx::Error> {
-    let gid = guild_id.get() as i64;
-    let uid = user_id as i64;
+    let gid = guild_id.get().cast_signed();
+    let uid = user_id.cast_signed();
     sqlx::query(
         r"
         INSERT INTO nick_changes (guild_id, user_id, user_name, old_nick, new_nick, category)
@@ -430,7 +430,7 @@ pub async fn upsert_guild_stats(
     total_changes: u64,
     bulk_randomize_count: u64,
 ) -> Result<(), sqlx::Error> {
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     sqlx::query(
         r"
         INSERT INTO guild_stats (guild_id, total_changes, bulk_randomize_count)
@@ -441,8 +441,8 @@ pub async fn upsert_guild_stats(
         ",
     )
     .bind(gid)
-    .bind(total_changes as i64)
-    .bind(bulk_randomize_count as i64)
+    .bind(total_changes.cast_signed())
+    .bind(bulk_randomize_count.cast_signed())
     .execute(pool)
     .await?;
     Ok(())
@@ -454,7 +454,7 @@ pub async fn increment_category_usage(
     guild_id: GuildId,
     category: &str,
 ) -> Result<(), sqlx::Error> {
-    let gid = guild_id.get() as i64;
+    let gid = guild_id.get().cast_signed();
     sqlx::query(
         r"
         INSERT INTO category_usage (guild_id, category_name, usage_count)
@@ -501,8 +501,8 @@ pub async fn find_recent_nick_change(
         LIMIT 1
         ",
     )
-    .bind(guild_id.get() as i64)
-    .bind(user_id as i64)
+    .bind(guild_id.get().cast_signed())
+    .bind(user_id.cast_signed())
     .bind(days)
     .fetch_optional(pool)
     .await?;
@@ -540,7 +540,7 @@ pub async fn upsert_feedback(
         ",
     )
     .bind(nick_change_id)
-    .bind(submitted_by as i64)
+    .bind(submitted_by.cast_signed())
     .bind(is_relevant)
     .bind(nsfw_miscategorized)
     .bind(note)

@@ -27,10 +27,8 @@ struct NickModal {
 ///
 /// A modal lets you optionally choose a category and/or a specific name.
 /// Requires the **Manage Nicknames** permission.
-#[poise::command(
-    context_menu_command = "Assign Random Nick",
-    guild_only
-)]
+#[poise::command(context_menu_command = "Assign Random Nick", guild_only)]
+#[allow(clippy::too_many_lines)]
 pub async fn assign_random_nick(
     ctx: poise::ApplicationContext<'_, Data, Error>,
     user: serenity::User,
@@ -40,13 +38,10 @@ pub async fn assign_random_nick(
     }
     // Show the modal to optionally pick a category / specific name
     let modal = poise::execute_modal(ctx, None::<NickModal>, None).await?;
-    let NickModal {
+    let Some(NickModal {
         category,
         specific_name,
-    } = match modal {
-        Some(m) => m,
-        None => return Ok(()), // user dismissed
-    };
+    }) = modal else { return Ok(()) }; // User cancelled the modal, no need to send a follow-up message
 
     // The modal submission opens a fresh interaction; defer so the member
     // fetch + edit below can't blow the 3-second response window.
@@ -130,7 +125,7 @@ pub async fn assign_random_nick(
             user.id.get(),
             user.name.clone(),
             old_nick.clone(),
-            new_nick.clone(),
+            &new_nick.clone(),
             cat_name.clone(),
         );
         let gs = data.guild(guild_id).unwrap();
