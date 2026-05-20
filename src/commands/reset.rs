@@ -1,3 +1,4 @@
+use crate::commands::perms::require_manage_nicknames;
 use crate::{Context, Error};
 
 /// Reset the without-replacement name pool for a category (or all categories).
@@ -7,7 +8,6 @@ use crate::{Context, Error};
 #[poise::command(
     slash_command,
     guild_only,
-    required_permissions = "MANAGE_NICKNAMES",
     description_localized(
         "en-US",
         "Reset the name pool so previously used names become available again"
@@ -19,6 +19,9 @@ pub async fn reset_pool(
     #[autocomplete = "crate::commands::randomize::autocomplete_category"]
     category: Option<String>,
 ) -> Result<(), Error> {
+    if !require_manage_nicknames(ctx).await? {
+        return Ok(());
+    }
     let guild_id = ctx.guild_id().unwrap();
     // Normalise to lowercase so it matches the stored keys
     let cat = category.as_deref().map(str::to_lowercase);

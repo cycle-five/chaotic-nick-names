@@ -3,6 +3,7 @@ pub mod context_menu;
 pub mod feedback;
 pub mod history;
 pub mod nick;
+pub mod perms;
 pub mod randomize;
 pub mod reset;
 pub mod restore;
