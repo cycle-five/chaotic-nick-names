@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::fmt::Write;
+use std::time::Duration;
 
 use poise::serenity_prelude::{self as serenity, futures::StreamExt};
 
@@ -87,8 +87,11 @@ pub async fn give_feedback(
     // a bulk randomize on a large guild can evict assignments we still want
     // to surface here. Query directly.
     #[allow(clippy::manual_let_else)]
-    let nc = if let Some(row) = db::find_recent_nick_change(&ctx.data.db, guild_id, user.id.get(), RECENT_DAYS)
-        .await? { row } else {
+    let nc = if let Some(row) =
+        db::find_recent_nick_change(&ctx.data.db, guild_id, user.id.get(), RECENT_DAYS).await?
+    {
+        row
+    } else {
         ctx.send(
             poise::CreateReply::default()
                 .content(format!(
@@ -281,21 +284,30 @@ fn body_text(nc: &db::RecentNickChange, state: &FeedbackState) -> String {
         "**Feedback on:** `{}` *({})*  · changed {}\n\n",
         nc.new_nick, nc.category, when
     );
-    let _ = write!(s, "{}", match state.relevance {
-        Relevance::Unset => "• Relevance: *(not selected)*\n",
-        Relevance::Yes => "• Relevance: ✅ relevant\n",
-        Relevance::No => "• Relevance: ❌ not relevant\n",
-        Relevance::Skip => "• Relevance: ⏭️ skipped\n",
-    });
-    let _ = writeln!(s,
+    let _ = write!(
+        s,
+        "{}",
+        match state.relevance {
+            Relevance::Unset => "• Relevance: *(not selected)*\n",
+            Relevance::Yes => "• Relevance: ✅ relevant\n",
+            Relevance::No => "• Relevance: ❌ not relevant\n",
+            Relevance::Skip => "• Relevance: ⏭️ skipped\n",
+        }
+    );
+    let _ = writeln!(
+        s,
         "• NSFW miscategorized flag: {}",
         if state.nsfw_flag { "🔞 yes" } else { "—" }
     );
     match state.note.as_deref() {
         // The modal enforces max_length=140 server-side, so anything we see
         // here already fits — no manual truncation needed.
-        None | Some("") => { let _ = writeln!(s, "• Note: *(none)*"); },
-        Some(note) => { let _ = writeln!(s, "• Note: {note}"); },
+        None | Some("") => {
+            let _ = writeln!(s, "• Note: *(none)*");
+        }
+        Some(note) => {
+            let _ = writeln!(s, "• Note: {note}");
+        }
     }
     s
 }

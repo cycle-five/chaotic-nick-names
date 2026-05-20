@@ -41,7 +41,10 @@ pub async fn assign_random_nick(
     let Some(NickModal {
         category,
         specific_name,
-    }) = modal else { return Ok(()) }; // User cancelled the modal, no need to send a follow-up message
+    }) = modal
+    else {
+        return Ok(());
+    }; // User cancelled the modal, no need to send a follow-up message
 
     // The modal submission opens a fresh interaction; defer so the member
     // fetch + edit below can't blow the 3-second response window.

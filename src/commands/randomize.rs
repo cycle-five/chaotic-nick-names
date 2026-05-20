@@ -141,7 +141,6 @@ pub async fn randomize(
         return Ok(());
     }
 
-
     let assignments: Vec<Assignment> = {
         // In chaos mode collect the category keys once (O(C)) so per-member
         // selection is O(1) instead of O(C) per member.

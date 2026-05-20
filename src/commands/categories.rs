@@ -318,7 +318,8 @@ pub async fn import(
             .iter()
             .map(|(cat, n)| format!("• **{cat}** ({n} name(s))"))
             .collect();
-        let _ = write!(reply,
+        let _ = write!(
+            reply,
             "✅ Imported **{}** categor{}:\n{}",
             added.len(),
             if added.len() == 1 { "y" } else { "ies" },
@@ -329,7 +330,8 @@ pub async fn import(
         if !reply.is_empty() {
             reply.push('\n');
         }
-        let _ = write!(reply,
+        let _ = write!(
+            reply,
             "⚠️ **{}** line(s) skipped:\n{}",
             errors.len(),
             errors.join("\n")
