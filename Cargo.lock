@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "chaotic-nick-names"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "chrono",
  "dashmap 6.2.1",
