@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use chrono::{DateTime, Utc};
 use poise::serenity_prelude::GuildId;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 
@@ -8,15 +9,21 @@ use crate::state::{GuildState, GuildStats, HistoryEntry};
 // ── Pool setup ────────────────────────────────────────────────────────────────
 
 /// Connect to Postgres, run pending migrations, and return the pool.
+/// Migrations are listed explicitly so the boot order is obvious; each file
+/// is idempotent (`IF NOT EXISTS`) so re-running on an up-to-date schema is
+/// a no-op.
 pub async fn setup(database_url: &str) -> Result<PgPool, sqlx::Error> {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(database_url)
         .await?;
 
-    sqlx::raw_sql(include_str!("../migrations/001_initial.sql"))
-        .execute(&pool)
-        .await?;
+    for sql in [
+        include_str!("../migrations/001_initial.sql"),
+        include_str!("../migrations/002_feedback.sql"),
+    ] {
+        sqlx::raw_sql(sql).execute(&pool).await?;
+    }
 
     Ok(pool)
 }
@@ -458,6 +465,85 @@ pub async fn increment_category_usage(
     )
     .bind(gid)
     .bind(category)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ── Feedback lookups ─────────────────────────────────────────────────────────
+
+/// A minimal projection of a `nick_changes` row used by the feedback flow:
+/// just the fields needed to render the prompt and to attach feedback by FK.
+#[derive(Debug, Clone)]
+pub struct RecentNickChange {
+    pub id: i64,
+    pub category: String,
+    pub new_nick: String,
+    pub changed_at: DateTime<Utc>,
+}
+
+/// Most recent `nick_changes` row for `(guild_id, user_id)` within the last
+/// `days` days, or `None` if no qualifying row exists.
+pub async fn find_recent_nick_change(
+    pool: &PgPool,
+    guild_id: GuildId,
+    user_id: u64,
+    days: i32,
+) -> Result<Option<RecentNickChange>, sqlx::Error> {
+    let row = sqlx::query(
+        r"
+        SELECT id, category, new_nick, changed_at
+        FROM nick_changes
+        WHERE guild_id = $1
+          AND user_id  = $2
+          AND changed_at > NOW() - ($3::int * INTERVAL '1 day')
+        ORDER BY changed_at DESC
+        LIMIT 1
+        ",
+    )
+    .bind(guild_id.get() as i64)
+    .bind(user_id as i64)
+    .bind(days)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| RecentNickChange {
+        id: r.get("id"),
+        category: r.get("category"),
+        new_nick: r.get("new_nick"),
+        changed_at: r.get("changed_at"),
+    }))
+}
+
+/// Insert or update one feedback row for `(nick_change_id, submitted_by)`.
+/// Resubmissions overwrite prior values and refresh `created_at` to act
+/// like a "last edited at" — this keeps the table small and prevents
+/// duplicate feedback per assignment from one user.
+pub async fn upsert_feedback(
+    pool: &PgPool,
+    nick_change_id: i64,
+    submitted_by: u64,
+    is_relevant: Option<bool>,
+    nsfw_miscategorized: bool,
+    note: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r"
+        INSERT INTO feedback
+            (nick_change_id, submitted_by, is_relevant, nsfw_miscategorized, note)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (nick_change_id, submitted_by) DO UPDATE
+            SET is_relevant         = EXCLUDED.is_relevant,
+                nsfw_miscategorized = EXCLUDED.nsfw_miscategorized,
+                note                = EXCLUDED.note,
+                created_at          = NOW()
+        ",
+    )
+    .bind(nick_change_id)
+    .bind(submitted_by as i64)
+    .bind(is_relevant)
+    .bind(nsfw_miscategorized)
+    .bind(note)
     .execute(pool)
     .await?;
     Ok(())
