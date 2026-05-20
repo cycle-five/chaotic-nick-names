@@ -309,7 +309,7 @@ def _load_from_file(path: Path) -> list[str]:
     """Read a category override file. `.json` = array of strings; else
     newline-separated with `#` comments and blank lines ignored."""
     text = path.read_text(encoding="utf-8")
-    if path.suffix == ".json":
+    if path.suffix.lower() == ".json":
         loaded = json.loads(text)
         if not isinstance(loaded, list):
             raise ValueError(
@@ -318,8 +318,10 @@ def _load_from_file(path: Path) -> list[str]:
         return [str(x) for x in loaded]
     out: list[str] = []
     for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+        # Strip end-of-line comments first, then whitespace; this also handles
+        # whole-line `# ...` comments because the split leaves an empty prefix.
+        line = line.split("#", 1)[0].strip()
+        if not line:
             continue
         out.append(line)
     return out
@@ -446,8 +448,9 @@ def _parse_from_file_spec(spec: str) -> tuple[str, Path]:
         raise argparse.ArgumentTypeError(
             f"--from-file CATEGORY part is empty: {spec!r}")
     path = Path(raw_path).expanduser()
-    if not path.exists():
-        raise argparse.ArgumentTypeError(f"--from-file path not found: {path}")
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(
+            f"--from-file path is not a file: {path}")
     return cat, path
 
 

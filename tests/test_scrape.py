@@ -164,7 +164,11 @@ def test_main_from_file_txt_additive(tmp_path, monkeypatch):
         json.dumps({"cocktails": ["Negroni"]}), encoding="utf-8")
     overrides = tmp_path / "cocktails.txt"
     overrides.write_text(
-        "# curated overrides\nSazerac\nAviation\n\n# blank line above\n",
+        "# curated overrides\n"
+        "Sazerac  # canonical New Orleans cocktail (EOL comment)\n"
+        "Aviation\n"
+        "\n"
+        "# blank line above\n",
         encoding="utf-8")
     monkeypatch.setattr(m, "CATEGORIES_PATH", cats)
     monkeypatch.setattr(m, "get_session", lambda: object())
