@@ -4,6 +4,21 @@
 Loads curated seed lists already committed in src/categories.json, scrapes
 Wikipedia on top of them, merges without ever dropping seeds, and rewrites
 the file. Run: `uv run python main.py`. Proxy via SCRAPER_PROXY_URL env.
+
+Pass `--only CATEGORY ...` to scope updates. Pass `--replace` (requires
+`--only` or `--from-file`) to discard existing entries for those categories
+and write just the freshly-scraped names. By default `--replace` refuses
+to wipe a non-empty category when the input returns zero entries; pass
+`--allow-empty` to override.
+
+Pass `--dry-run` to run end-to-end without writing the file — prints the
+per-category diff (full +/- name list, unlimited; pipe to a pager).
+
+Pass `--from-file CATEGORY=PATH` (repeatable) to skip Wikipedia for that
+category and read names from a curated file instead. Format auto-detected
+by extension: `.json` = array of strings, anything else = newline-separated
+with `#` comments allowed. Additive by default; combine with `--replace`
+to make the file the only source.
 """
 import argparse
 import json
@@ -242,10 +257,8 @@ SOURCES: dict[str, list[tuple]] = {
     "cars": [(W + "List_of_car_brands", "links", {}),
              (W + "List_of_automobiles", "links", {})],
     "scientists": [(W + "List_of_physicists", "links", {}),
-                   (W + "List_of_chemists", "links", {}),
-                   (W + "List_of_biologists", "links", {}),
-                   (W + "List_of_astronomers", "links", {}),
-                   (W + "List_of_mathematicians", "links", {})],
+                   (W + "List_of_American_mathematicians", "links", {}),
+                   (W + "List_of_Greek_mathematicians", "links", {})],
     "strains_weed": [(W + "List_of_Cannabis_strains", "links", {})],
     "fictional_villainesses": [
         (W + "List_of_female_supervillains", "links", {})],
@@ -292,48 +305,153 @@ def scrape_category(session: requests.Session, name: str) -> list[str]:
     return dedupe_keep_first(cleaned)
 
 
-def main(only: list[str] | None = None) -> None:
+def _load_from_file(path: Path) -> list[str]:
+    """Read a category override file. `.json` = array of strings; else
+    newline-separated with `#` comments and blank lines ignored."""
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".json":
+        loaded = json.loads(text)
+        if not isinstance(loaded, list):
+            raise ValueError(
+                f"{path}: expected a JSON array of strings, "
+                f"got {type(loaded).__name__}")
+        return [str(x) for x in loaded]
+    out: list[str] = []
+    for line in text.splitlines():
+        # Strip end-of-line comments first, then whitespace; this also handles
+        # whole-line `# ...` comments because the split leaves an empty prefix.
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        out.append(line)
+    return out
+
+
+def main(
+    only: list[str] | None = None,
+    replace: bool = False,
+    allow_empty: bool = False,
+    dry_run: bool = False,
+    from_file: dict[str, Path] | None = None,
+) -> None:
+    from_file = from_file or {}
+    requested_explicit = set(only or []) | set(from_file.keys())
+
+    if replace and not requested_explicit:
+        print("❌ --replace requires --only or --from-file to specify which "
+              "categories to wipe; refusing to nuke every category at once.")
+        return
+
     data = json.loads(CATEGORIES_PATH.read_text(encoding="utf-8"))
 
-    all_cats = sorted(set(data) | set(SOURCES))
-    if only:
-        requested = set(only)
-        unknown = sorted(requested - set(all_cats))
+    all_cats = sorted(set(data) | set(SOURCES) | set(from_file.keys()))
+    if requested_explicit:
+        unknown = sorted(requested_explicit - set(all_cats))
+        # --from-file keys are always in all_cats by construction, so unknown
+        # can only contain --only entries that aren't real categories.
         if unknown:
             print(f"⚠️  Unknown categories ignored: {', '.join(unknown)}")
-        cats = [c for c in all_cats if c in requested]
+        cats = [c for c in all_cats if c in requested_explicit]
         if not cats:
             print("❌ No known categories selected; nothing to do.")
             return
-        print(f"▶️  Updating only: {', '.join(cats)}")
+        mode = "Replacing" if replace else "Updating"
+        suffix = " (DRY RUN — no file changes)" if dry_run else ""
+        print(f"▶️  {mode} only: {', '.join(cats)}{suffix}")
     else:
         cats = all_cats
+        if dry_run:
+            print("🔍 DRY RUN — no file changes")
 
     session = get_session()
-    report: dict[str, tuple[int, int, int]] = {}
+    report: dict[str, tuple[list[str], list[str], int]] = {}
+    refused: list[tuple[str, int]] = []
 
     for cat in cats:
-        seed = dedupe_keep_first(
-            [s for s in (clean_name(x) for x in data.get(cat, [])) if s])
-        scraped = scrape_category(session, cat)
-        # Defensive re-clean: clean_name is idempotent, so this is a no-op for
-        # the real path (scrape_category already cleans) but guarantees the
-        # written file is always valid regardless of how names arrived.
-        scraped = [c for c in (clean_name(x) for x in scraped) if c]
-        merged = dedupe_keep_first(seed + scraped)
+        existing = list(data.get(cat, []))
+        if replace:
+            seed: list[str] = []
+        else:
+            seed = dedupe_keep_first(
+                [s for s in (clean_name(x) for x in existing) if s])
+
+        if cat in from_file:
+            try:
+                raw = _load_from_file(from_file[cat])
+            except (OSError, ValueError, json.JSONDecodeError) as e:
+                print(f"❌ {cat}: --from-file load failed "
+                      f"({from_file[cat]}): {e}")
+                continue
+            new_names = [c for c in (clean_name(x) for x in raw) if c]
+            new_names = dedupe_keep_first(new_names)
+        else:
+            new_names = scrape_category(session, cat)
+            # Defensive re-clean: clean_name is idempotent, so this is a no-op
+            # for the real path (scrape_category already cleans) but guarantees
+            # the written file is always valid regardless of how names arrived.
+            new_names = [c for c in (clean_name(x) for x in new_names) if c]
+
+        if replace and not new_names and existing and not allow_empty:
+            refused.append((cat, len(existing)))
+            print(f"❌ {cat}: input returned 0 entries; refusing to wipe "
+                  f"{len(existing)} existing (pass --allow-empty to override)")
+            continue
+
+        merged = dedupe_keep_first(seed + new_names)
         data[cat] = merged
-        report[cat] = (len(seed), len(merged) - len(seed), len(merged))
+        report[cat] = (existing, merged, len(seed))
 
-    CATEGORIES_PATH.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True),
-        encoding="utf-8")
+    if dry_run:
+        print("\n🔍 src/categories.json NOT modified (dry run)")
+    else:
+        CATEGORIES_PATH.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8")
+        print("\n✅ src/categories.json updated")
 
-    print("\n✅ src/categories.json updated")
     for cat in sorted(report):
-        seed_n, new_n, total = report[cat]
+        existing, merged, seed_n = report[cat]
         target = MIN_TARGET.get(cat, 0)
-        flag = f"  ⚠️ below target {target}" if total < target else ""
-        print(f"  {cat:24} seed {seed_n:4}  +{new_n:4}  = {total:4}{flag}")
+        flag_word = "would be" if dry_run else ""
+        flag = (f"  ⚠️ {flag_word + ' ' if flag_word else ''}below target "
+                f"{target}") if len(merged) < target else ""
+        if dry_run:
+            before_set, after_set = set(existing), set(merged)
+            added = sorted(after_set - before_set)
+            removed = sorted(before_set - after_set)
+            print(f"\n  {cat}: +{len(added)} -{len(removed)} "
+                  f"→ {len(merged)} total{flag}")
+            for n in added:
+                print(f"    + {n}")
+            for n in removed:
+                print(f"    - {n}")
+        else:
+            new_n = len(merged) - seed_n
+            print(f"  {cat:24} seed {seed_n:4}  +{new_n:4}  "
+                  f"= {len(merged):4}{flag}")
+
+    if refused:
+        print(f"\n⚠️  Refused {len(refused)} replacement(s) "
+              "(empty input, --allow-empty not set):")
+        for cat, n in refused:
+            print(f"  {cat:24} kept {n} existing")
+
+
+def _parse_from_file_spec(spec: str) -> tuple[str, Path]:
+    """argparse type: parse `CATEGORY=PATH` and validate the path exists."""
+    if "=" not in spec:
+        raise argparse.ArgumentTypeError(
+            f"--from-file expects CATEGORY=PATH, got {spec!r}")
+    cat, raw_path = spec.split("=", 1)
+    cat = cat.strip()
+    if not cat:
+        raise argparse.ArgumentTypeError(
+            f"--from-file CATEGORY part is empty: {spec!r}")
+    path = Path(raw_path).expanduser()
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(
+            f"--from-file path is not a file: {path}")
+    return cat, path
 
 
 if __name__ == "__main__":
@@ -346,5 +464,40 @@ if __name__ == "__main__":
         metavar="CATEGORY",
         help="Only update these categories (space-separated); all other "
         "categories in src/categories.json are left unchanged.")
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="For each --only / --from-file category, discard existing "
+        "entries and write just the freshly-scraped names. Requires --only "
+        "or --from-file. Refuses to wipe a non-empty category when the input "
+        "returns zero unless --allow-empty is also passed.")
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="With --replace, permit overwriting a non-empty category with "
+        "an empty input result.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run end-to-end without writing src/categories.json. Prints the "
+        "per-category +/- name diff (unlimited; pipe to a pager).")
+    parser.add_argument(
+        "--from-file",
+        action="append",
+        default=[],
+        metavar="CATEGORY=PATH",
+        type=_parse_from_file_spec,
+        dest="from_file",
+        help="Use PATH as the input list for CATEGORY, skipping Wikipedia "
+        "entirely. Repeatable. Format auto-detected: .json = array of "
+        "strings, anything else = newline-separated with '#' comments. "
+        "Additive by default; combine with --replace to make the file the "
+        "only source.")
     args = parser.parse_args()
-    main(only=args.only)
+    main(
+        only=args.only,
+        replace=args.replace,
+        allow_empty=args.allow_empty,
+        dry_run=args.dry_run,
+        from_file=dict(args.from_file or []),
+    )
