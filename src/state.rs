@@ -331,7 +331,7 @@ mod tests {
             1,
             "user".to_string(),
             None,
-            "A".to_string(),
+            "A",
             "mycat".to_string(),
         );
         assert!(gs.stats.category_usage.contains_key("mycat"));
@@ -421,7 +421,7 @@ mod tests {
             1,
             "alice".to_string(),
             None,
-            "Newton".to_string(),
+            "Newton",
             "scientists".to_string(),
         );
         assert_eq!(gs.stats.total_changes, 1);
@@ -434,14 +434,14 @@ mod tests {
             1,
             "alice".to_string(),
             None,
-            "Newton".to_string(),
+            "Newton",
             "scientists".to_string(),
         );
         gs.record_change(
             2,
             "bob".to_string(),
             None,
-            "Einstein".to_string(),
+            "Einstein",
             "scientists".to_string(),
         );
         assert_eq!(gs.stats.category_usage["scientists"], 2);
