@@ -1,5 +1,6 @@
 pub mod categories;
 pub mod context_menu;
+pub mod feedback;
 pub mod history;
 pub mod nick;
 pub mod randomize;
@@ -20,5 +21,6 @@ pub fn all_commands() -> Vec<poise::Command<Data, Error>> {
         reset::reset_pool(),
         restore::restore(),
         context_menu::assign_random_nick(),
+        feedback::give_feedback(),
     ]
 }
