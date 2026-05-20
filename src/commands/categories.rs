@@ -130,7 +130,7 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
 
 /// Add a new custom category with a comma-separated list of names.
 ///
-/// Requires the **Manage Guild** permission.
+/// Requires the **Manage Server** permission.
 #[poise::command(
     slash_command,
     guild_only,
@@ -197,7 +197,7 @@ pub async fn add(
 
 /// Remove a custom category. Built-in categories cannot be removed.
 ///
-/// Requires the **Manage Guild** permission.
+/// Requires the **Manage Server** permission.
 #[poise::command(
     slash_command,
     guild_only,
@@ -257,7 +257,7 @@ pub async fn remove(
 /// amusement_parks,Cedar Point,Dollywood,Alton Towers
 /// ```
 /// Multiple rows create or replace multiple categories at once.
-/// Requires the **Manage Guild** permission.
+/// Requires the **Manage Server** permission.
 #[poise::command(
     slash_command,
     guild_only,

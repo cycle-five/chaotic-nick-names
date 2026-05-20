@@ -27,52 +27,35 @@ use crate::{Context, Error};
 ///
 /// `label` is the human-readable name shown in the rejection message
 /// (e.g. "Manage Nicknames").
+///
+/// Permissions come from `Member.permissions` populated by Discord on the
+/// interaction payload. Discord computes this server-side with guild owner
+/// all-perms and channel-level overrides applied — no cache lookup, no
+/// cold-start failure mode. Channel overrides for the perms we gate on
+/// (Manage Nicknames, Manage Server) are pathological config and we accept
+/// whatever Discord reports.
 pub async fn require_permission(
     ctx: Context<'_>,
     needed: serenity::Permissions,
     label: &str,
 ) -> Result<bool, Error> {
-    let Some(member) = ctx.author_member().await else {
-        // Should be impossible on `guild_only` commands, but bail safely.
+    let perms = ctx.author_member().await.and_then(|m| m.permissions);
+    let Some(perms) = perms else {
+        // guild_only application commands always have a populated member
+        // with permissions; if we ever lack one, something is wrong with
+        // the interaction shape — fail closed.
+        tracing::warn!(
+            "no permissions on interaction for user {} in guild {:?}",
+            ctx.author().id.get(),
+            ctx.guild_id(),
+        );
         ctx.send(
             poise::CreateReply::default()
-                .content("This command must be used inside a server.")
+                .content("Couldn't verify your permissions — try again in a moment.")
                 .ephemeral(true),
         )
         .await?;
         return Ok(false);
-    };
-
-    // `Member::permissions` is deprecated in favour of
-    // `Guild::user_permissions_in`, which additionally applies channel-level
-    // permission overrides. We intentionally don't want that: Manage
-    // Nicknames and Manage Server are server-wide concerns (nicknames are
-    // not channel-scoped, custom-category writes affect the whole guild), so
-    // the guild-wide computation is exactly the semantics we want. Switching
-    // would also require plumbing channel resolution with a thread fallback.
-    #[allow(deprecated)]
-    let perms = match member.permissions(ctx.cache()) {
-        Ok(p) => p,
-        Err(e) => {
-            // Cache miss for the guild is the realistic failure mode. Fail
-            // closed: tell the user to retry rather than risk silently
-            // letting an unauthorised call through.
-            tracing::warn!(
-                "permission lookup failed for user {} in guild {:?}: {e}",
-                ctx.author().id.get(),
-                ctx.guild_id(),
-            );
-            ctx.send(
-                poise::CreateReply::default()
-                    .content(
-                        "Couldn't verify your permissions for this command \
-                         right now — try again in a moment.",
-                    )
-                    .ephemeral(true),
-            )
-            .await?;
-            return Ok(false);
-        }
     };
 
     if perms.contains(needed) {
