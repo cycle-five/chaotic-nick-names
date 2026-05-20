@@ -1,5 +1,6 @@
 use poise::serenity_prelude as serenity;
 
+use crate::commands::perms::require_manage_nicknames;
 use crate::commands::randomize::{
     escape_mentions, nick_edit_failure_message, resolve_category, truncate_nick,
 };
@@ -11,7 +12,6 @@ use crate::{Context, Error};
 #[poise::command(
     slash_command,
     guild_only,
-    required_permissions = "MANAGE_NICKNAMES",
     description_localized("en-US", "Assign a random nickname to a specific user")
 )]
 pub async fn nick(
@@ -23,6 +23,9 @@ pub async fn nick(
     #[description = "A specific name to assign (omit to pick randomly from the category)"]
     specific_name: Option<String>,
 ) -> Result<(), Error> {
+    if !require_manage_nicknames(ctx).await? {
+        return Ok(());
+    }
     ctx.defer().await?;
 
     let guild_id = ctx.guild_id().unwrap();

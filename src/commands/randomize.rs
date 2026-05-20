@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use poise::serenity_prelude as serenity;
 
+use crate::commands::perms::require_manage_nicknames;
 use crate::{Context, Error};
 
 /// Assign a random nickname to every member of the server.
@@ -11,7 +12,6 @@ use crate::{Context, Error};
 #[poise::command(
     slash_command,
     guild_only,
-    required_permissions = "MANAGE_NICKNAMES",
     description_localized("en-US", "Assign random nicknames to every server member")
 )]
 pub async fn randomize(
@@ -22,6 +22,9 @@ pub async fn randomize(
     #[description = "Full chaos: give every member a name from a DIFFERENT random category"]
     chaos: Option<bool>,
 ) -> Result<(), Error> {
+    if !require_manage_nicknames(ctx).await? {
+        return Ok(());
+    }
     ctx.defer().await?;
 
     let guild_id = ctx.guild_id().unwrap();

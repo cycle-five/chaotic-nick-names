@@ -1,5 +1,6 @@
 use poise::serenity_prelude as serenity;
 
+use crate::commands::perms::require_manage_nicknames;
 use crate::commands::randomize::{
     escape_mentions, nick_edit_failure_message, resolve_category, truncate_nick,
 };
@@ -28,13 +29,15 @@ struct NickModal {
 /// Requires the **Manage Nicknames** permission.
 #[poise::command(
     context_menu_command = "Assign Random Nick",
-    guild_only,
-    required_permissions = "MANAGE_NICKNAMES"
+    guild_only
 )]
 pub async fn assign_random_nick(
     ctx: poise::ApplicationContext<'_, Data, Error>,
     user: serenity::User,
 ) -> Result<(), Error> {
+    if !require_manage_nicknames(poise::Context::Application(ctx)).await? {
+        return Ok(());
+    }
     // Show the modal to optionally pick a category / specific name
     let modal = poise::execute_modal(ctx, None::<NickModal>, None).await?;
     let NickModal {

@@ -1,5 +1,6 @@
 use poise::serenity_prelude as serenity;
 
+use crate::commands::perms::require_manage_guild;
 use crate::{data, Context, Error};
 
 /// Validate a category key: must be non-empty, start with a letter, and contain
@@ -133,7 +134,6 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(
     slash_command,
     guild_only,
-    required_permissions = "MANAGE_GUILD",
     rename = "add",
     description_localized("en-US", "Add a custom nickname category")
 )]
@@ -142,6 +142,9 @@ pub async fn add(
     #[description = "Category name (alphanumeric and underscores)"] name: String,
     #[description = "Comma-separated list of nickname values"] items: String,
 ) -> Result<(), Error> {
+    if !require_manage_guild(ctx).await? {
+        return Ok(());
+    }
     // Validate name
     let key = name.to_lowercase();
     if !valid_category_key(&key) {
@@ -198,7 +201,6 @@ pub async fn add(
 #[poise::command(
     slash_command,
     guild_only,
-    required_permissions = "MANAGE_GUILD",
     rename = "remove",
     description_localized("en-US", "Remove a custom nickname category")
 )]
@@ -206,6 +208,9 @@ pub async fn remove(
     ctx: Context<'_>,
     #[description = "Name of the custom category to remove"] name: String,
 ) -> Result<(), Error> {
+    if !require_manage_guild(ctx).await? {
+        return Ok(());
+    }
     let key = name.to_lowercase();
     let guild_id = ctx.guild_id().unwrap();
 
@@ -256,7 +261,6 @@ pub async fn remove(
 #[poise::command(
     slash_command,
     guild_only,
-    required_permissions = "MANAGE_GUILD",
     rename = "import",
     description_localized("en-US", "Import categories from a CSV file attachment")
 )]
@@ -264,6 +268,9 @@ pub async fn import(
     ctx: Context<'_>,
     #[description = "CSV file (each row: category_name,name1,name2,…)"] file: serenity::Attachment,
 ) -> Result<(), Error> {
+    if !require_manage_guild(ctx).await? {
+        return Ok(());
+    }
     ctx.defer().await?;
 
     // Guard against oversized uploads (1 MiB limit)
