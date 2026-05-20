@@ -4,6 +4,12 @@
 Loads curated seed lists already committed in src/categories.json, scrapes
 Wikipedia on top of them, merges without ever dropping seeds, and rewrites
 the file. Run: `uv run python main.py`. Proxy via SCRAPER_PROXY_URL env.
+
+Pass `--only CATEGORY ...` to scope updates. Pass `--replace` (requires
+`--only`) to discard existing entries for those categories and write just
+the freshly-scraped names. By default `--replace` refuses to wipe a non-empty
+category when the scrape returns zero entries; pass `--allow-empty` to
+override.
 """
 import argparse
 import json
@@ -242,10 +248,8 @@ SOURCES: dict[str, list[tuple]] = {
     "cars": [(W + "List_of_car_brands", "links", {}),
              (W + "List_of_automobiles", "links", {})],
     "scientists": [(W + "List_of_physicists", "links", {}),
-                   (W + "List_of_chemists", "links", {}),
-                   (W + "List_of_biologists", "links", {}),
-                   (W + "List_of_astronomers", "links", {}),
-                   (W + "List_of_mathematicians", "links", {})],
+                   (W + "List_of_American_mathematicians", "links", {}),
+                   (W + "List_of_Greek_mathematicians", "links", {})],
     "strains_weed": [(W + "List_of_Cannabis_strains", "links", {})],
     "fictional_villainesses": [
         (W + "List_of_female_supervillains", "links", {})],
@@ -292,7 +296,16 @@ def scrape_category(session: requests.Session, name: str) -> list[str]:
     return dedupe_keep_first(cleaned)
 
 
-def main(only: list[str] | None = None) -> None:
+def main(
+    only: list[str] | None = None,
+    replace: bool = False,
+    allow_empty: bool = False,
+) -> None:
+    if replace and not only:
+        print("❌ --replace requires --only to specify which categories to "
+              "wipe; refusing to nuke every category at once.")
+        return
+
     data = json.loads(CATEGORIES_PATH.read_text(encoding="utf-8"))
 
     all_cats = sorted(set(data) | set(SOURCES))
@@ -305,21 +318,32 @@ def main(only: list[str] | None = None) -> None:
         if not cats:
             print("❌ No known categories selected; nothing to do.")
             return
-        print(f"▶️  Updating only: {', '.join(cats)}")
+        mode = "Replacing" if replace else "Updating"
+        print(f"▶️  {mode} only: {', '.join(cats)}")
     else:
         cats = all_cats
 
     session = get_session()
     report: dict[str, tuple[int, int, int]] = {}
+    refused: list[tuple[str, int]] = []
 
     for cat in cats:
-        seed = dedupe_keep_first(
-            [s for s in (clean_name(x) for x in data.get(cat, [])) if s])
+        existing = data.get(cat, [])
+        if replace:
+            seed: list[str] = []
+        else:
+            seed = dedupe_keep_first(
+                [s for s in (clean_name(x) for x in existing) if s])
         scraped = scrape_category(session, cat)
         # Defensive re-clean: clean_name is idempotent, so this is a no-op for
         # the real path (scrape_category already cleans) but guarantees the
         # written file is always valid regardless of how names arrived.
         scraped = [c for c in (clean_name(x) for x in scraped) if c]
+        if replace and not scraped and existing and not allow_empty:
+            refused.append((cat, len(existing)))
+            print(f"❌ {cat}: scrape returned 0 entries; refusing to wipe "
+                  f"{len(existing)} existing (pass --allow-empty to override)")
+            continue
         merged = dedupe_keep_first(seed + scraped)
         data[cat] = merged
         report[cat] = (len(seed), len(merged) - len(seed), len(merged))
@@ -335,6 +359,12 @@ def main(only: list[str] | None = None) -> None:
         flag = f"  ⚠️ below target {target}" if total < target else ""
         print(f"  {cat:24} seed {seed_n:4}  +{new_n:4}  = {total:4}{flag}")
 
+    if refused:
+        print(f"\n⚠️  Refused {len(refused)} replacement(s) "
+              "(empty scrape, --allow-empty not set):")
+        for cat, n in refused:
+            print(f"  {cat:24} kept {n} existing")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -346,5 +376,17 @@ if __name__ == "__main__":
         metavar="CATEGORY",
         help="Only update these categories (space-separated); all other "
         "categories in src/categories.json are left unchanged.")
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="For each --only category, discard existing entries and write "
+        "just the freshly-scraped names. Requires --only. Refuses to wipe a "
+        "non-empty category when the scrape returns zero unless "
+        "--allow-empty is also passed.")
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="With --replace, permit overwriting a non-empty category with "
+        "an empty scrape result.")
     args = parser.parse_args()
-    main(only=args.only)
+    main(only=args.only, replace=args.replace, allow_empty=args.allow_empty)

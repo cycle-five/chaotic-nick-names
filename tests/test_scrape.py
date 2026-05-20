@@ -67,3 +67,72 @@ def test_main_only_updates_selected_categories(tmp_path, monkeypatch):
     data = json.loads(cats.read_text(encoding="utf-8"))
     assert "Sazerac" in data["cocktails"]      # selected category updated
     assert data["spices"] == ["Cumin"]          # untouched category preserved
+
+
+def test_main_replace_discards_existing_for_selected(tmp_path, monkeypatch):
+    cats = tmp_path / "categories.json"
+    cats.write_text(
+        json.dumps({"cocktails": ["Negroni", "Martini"],
+                    "spices": ["Cumin"]}),
+        encoding="utf-8")
+    monkeypatch.setattr(m, "CATEGORIES_PATH", cats)
+    monkeypatch.setattr(m, "get_session", lambda: object())
+    monkeypatch.setattr(
+        m, "scrape_category",
+        lambda session, name: ["Sazerac", "Aviation"]
+        if name == "cocktails" else [])
+
+    m.main(only=["cocktails"], replace=True)
+
+    data = json.loads(cats.read_text(encoding="utf-8"))
+    # Seeds gone; only scrape survives, deduped + cleaned.
+    assert data["cocktails"] == ["Sazerac", "Aviation"]
+    # Non-selected category untouched.
+    assert data["spices"] == ["Cumin"]
+
+
+def test_main_replace_requires_only(tmp_path, monkeypatch, capsys):
+    cats = tmp_path / "categories.json"
+    original = {"cocktails": ["Negroni", "Martini"]}
+    cats.write_text(json.dumps(original), encoding="utf-8")
+    monkeypatch.setattr(m, "CATEGORIES_PATH", cats)
+
+    m.main(replace=True)  # no --only
+
+    # File untouched, error printed.
+    assert json.loads(cats.read_text(encoding="utf-8")) == original
+    out = capsys.readouterr().out
+    assert "--replace requires --only" in out
+
+
+def test_main_replace_refuses_empty_scrape(tmp_path, monkeypatch, capsys):
+    cats = tmp_path / "categories.json"
+    cats.write_text(
+        json.dumps({"cocktails": ["Negroni", "Martini"]}),
+        encoding="utf-8")
+    monkeypatch.setattr(m, "CATEGORIES_PATH", cats)
+    monkeypatch.setattr(m, "get_session", lambda: object())
+    monkeypatch.setattr(m, "scrape_category", lambda session, name: [])
+
+    m.main(only=["cocktails"], replace=True)
+
+    # Existing entries preserved exactly.
+    data = json.loads(cats.read_text(encoding="utf-8"))
+    assert data["cocktails"] == ["Negroni", "Martini"]
+    out = capsys.readouterr().out
+    assert "refusing to wipe" in out
+
+
+def test_main_replace_allow_empty_writes_empty(tmp_path, monkeypatch):
+    cats = tmp_path / "categories.json"
+    cats.write_text(
+        json.dumps({"cocktails": ["Negroni"]}),
+        encoding="utf-8")
+    monkeypatch.setattr(m, "CATEGORIES_PATH", cats)
+    monkeypatch.setattr(m, "get_session", lambda: object())
+    monkeypatch.setattr(m, "scrape_category", lambda session, name: [])
+
+    m.main(only=["cocktails"], replace=True, allow_empty=True)
+
+    data = json.loads(cats.read_text(encoding="utf-8"))
+    assert data["cocktails"] == []
