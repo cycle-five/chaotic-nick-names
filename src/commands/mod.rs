@@ -5,6 +5,7 @@ pub mod history;
 pub mod nick;
 pub mod perms;
 pub mod randomize;
+pub mod randomize_delivery;
 pub mod reset;
 pub mod restore;
 pub mod stats;
