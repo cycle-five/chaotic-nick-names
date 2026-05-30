@@ -21,6 +21,7 @@ pub async fn setup(database_url: &str) -> Result<PgPool, sqlx::Error> {
     for sql in [
         include_str!("../migrations/001_initial.sql"),
         include_str!("../migrations/002_feedback.sql"),
+        include_str!("../migrations/003_undelivered_summaries.sql"),
     ] {
         sqlx::raw_sql(sql).execute(&pool).await?;
     }
@@ -547,4 +548,51 @@ pub async fn upsert_feedback(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+// ── Undelivered randomize summaries (dead-letter) ────────────────────────────
+
+/// Park a randomize summary we could not deliver to `user_id` at the time, to be
+/// surfaced on their next `/randomize` in the guild. See
+/// [`crate::commands::randomize_delivery`].
+pub async fn insert_undelivered_summary(
+    pool: &PgPool,
+    guild_id: GuildId,
+    user_id: u64,
+    summary: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO undelivered_summaries (guild_id, user_id, summary) VALUES ($1, $2, $3)",
+    )
+    .bind(guild_id.get().cast_signed())
+    .bind(user_id.cast_signed())
+    .bind(summary)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Fetch **and delete** every parked summary for `(guild_id, user_id)`, oldest
+/// first. The delete-and-return is one statement (a `DELETE … RETURNING` CTE) so
+/// a summary is handed back exactly once even under concurrent calls.
+pub async fn take_undelivered_summaries(
+    pool: &PgPool,
+    guild_id: GuildId,
+    user_id: u64,
+) -> Result<Vec<String>, sqlx::Error> {
+    let rows = sqlx::query(
+        r"
+        WITH deleted AS (
+            DELETE FROM undelivered_summaries
+            WHERE guild_id = $1 AND user_id = $2
+            RETURNING summary, created_at
+        )
+        SELECT summary FROM deleted ORDER BY created_at
+        ",
+    )
+    .bind(guild_id.get().cast_signed())
+    .bind(user_id.cast_signed())
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|r| r.get("summary")).collect())
 }

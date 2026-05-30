@@ -5,3 +5,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Machine-local Claude Code settings (permission allowlists, absolute paths).
+# The shared, checked-in tooling lives under .claude/skills/.
+.claude/settings.local.json

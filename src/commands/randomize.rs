@@ -5,6 +5,7 @@ use rand::seq::IndexedRandom;
 use poise::serenity_prelude as serenity;
 
 use crate::commands::perms::require_manage_nicknames;
+use crate::commands::randomize_delivery;
 use crate::{Context, Error};
 // ── Assign names (without-replacement draw, holding write lock briefly) ────
 // Each tuple is (member, new_nick, category_used).
@@ -44,6 +45,26 @@ pub async fn randomize(
     let guild_id = ctx.guild_id().unwrap();
     let http = ctx.serenity_context().http.clone();
     let chaos = chaos.unwrap_or(false);
+
+    // Surface any summaries from an earlier run we couldn't deliver at the time
+    // (the interaction had expired and the user's DMs were closed). Fetch-and-
+    // clear, shown only to the invoker. Best-effort — never blocks the command.
+    {
+        let invoker = ctx.author().id;
+        match crate::db::take_undelivered_summaries(&ctx.data().db, guild_id, invoker.get()).await {
+            Ok(pending) if !pending.is_empty() => {
+                let body = randomize_delivery::render_recovered_summaries(&pending);
+                if let Err(e) = ctx
+                    .send(poise::CreateReply::default().content(body).ephemeral(true))
+                    .await
+                {
+                    tracing::warn!("failed to surface recovered randomize summaries: {e:?}");
+                }
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("failed to load undelivered randomize summaries: {e:?}"),
+        }
+    }
 
     // Collect members (up to 1,000 per page; paginated for larger servers)
     let members = fetch_all_members(guild_id, &http).await?;
@@ -191,8 +212,17 @@ pub async fn randomize(
     }
 
     let total = assignments.len();
-    let channel_id = ctx.channel_id();
     let bot_data = ctx.data().clone();
+    let invoker_id = ctx.author().id;
+    // The interaction token + the progress message's id let the background task
+    // edit that message (an interaction followup) via the webhook route, which
+    // Discord authorises without channel perms — unlike a raw channel POST.
+    // `Copy` Context means this match leaves `ctx` usable below.
+    let interaction_token = match ctx {
+        poise::Context::Application(actx) => Some(actx.interaction.token.clone()),
+        poise::Context::Prefix(_) => None,
+    };
+    let progress_msg_id = prompt.message().await?.id;
 
     prompt
         .edit(
@@ -275,24 +305,18 @@ pub async fn randomize(
             errors,
             "Background randomize task completed"
         );
-        let summary = format!(
-            "✅ Randomization complete! Changed: **{changed}** | ❌ Skipped/errors: **{errors}**"
-        );
-        if let Err(e) = channel_id
-            .send_message(
-                &http,
-                serenity::CreateMessage::new()
-                    .content(summary)
-                    .allowed_mentions(serenity::CreateAllowedMentions::new()),
-            )
-            .await
-        {
-            tracing::warn!(
-                "Failed to send randomize summary to channel {}: {:?}",
-                channel_id,
-                e
-            );
-        }
+        let summary = randomize_delivery::summary_text(changed, errors);
+        let outcome = randomize_delivery::deliver_summary(
+            &http,
+            &bot_data.db,
+            interaction_token.as_deref(),
+            progress_msg_id,
+            invoker_id,
+            guild_id,
+            &summary,
+        )
+        .await;
+        tracing::info!(guild = %guild_id, ?outcome, "Randomize summary delivered");
     });
 
     Ok(())
