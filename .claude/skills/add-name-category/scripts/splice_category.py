@@ -42,7 +42,7 @@ def load_names(path):
     names = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
-            s = line.rstrip("\n")
+            s = line.rstrip("\r\n")  # strip both LF and CRLF endings, keep other whitespace
             stripped = s.strip()
             if not stripped or stripped.startswith("#"):
                 continue

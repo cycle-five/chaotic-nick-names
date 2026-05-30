@@ -95,11 +95,20 @@ pub fn render_recovered_summaries(summaries: &[String]) -> String {
     if summaries.is_empty() {
         return String::new();
     }
+    // Cap the list: Discord rejects messages over 2000 chars, and because the
+    // rows are already cleared from the DB by the time we render, a failed send
+    // would lose every recovered summary — not just the overflow. Show at most
+    // LIMIT and tally the rest. (LIMIT * ~65 chars stays well under 2000.)
+    const LIMIT: usize = 15;
     let mut out =
         String::from("📬 Results from an earlier randomize run I couldn't deliver at the time:\n");
-    for s in summaries {
+    for s in summaries.iter().take(LIMIT) {
         out.push_str("\n• ");
         out.push_str(s);
+    }
+    if summaries.len() > LIMIT {
+        let remaining = summaries.len() - LIMIT;
+        out.push_str(&format!("\n\n…and {remaining} more run(s)."));
     }
     out
 }
@@ -151,5 +160,23 @@ mod tests {
         // The flush path only calls this when there is something to show, but a
         // defensive empty-in / empty-out keeps callers from posting a bare header.
         assert_eq!(render_recovered_summaries(&[]), "");
+    }
+
+    #[test]
+    fn render_recovered_caps_long_lists_under_discord_limit() {
+        // Many dead-lettered runs must not blow past Discord's 2000-char message
+        // cap — if the send fails, take_undelivered_summaries has already cleared
+        // the rows, so every recovered summary would be lost, not just truncated.
+        let many: Vec<String> = (0..50).map(|_| summary_text(303, 2)).collect();
+        let out = render_recovered_summaries(&many);
+        assert!(
+            out.chars().count() <= 2000,
+            "exceeded Discord's 2000-char limit: {} chars",
+            out.chars().count()
+        );
+        assert!(
+            out.to_lowercase().contains("more"),
+            "should note that some runs were omitted: {out}"
+        );
     }
 }
