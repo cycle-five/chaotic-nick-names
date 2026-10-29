@@ -27,6 +27,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    # Without this the db stays down after a host reboot or a dockerd restart
+    # while the bot (unless-stopped) comes back: depends_on is only honoured by
+    # `compose up`, not by the daemon's restart-on-boot.
+    restart: unless-stopped
 
 volumes:
   postgres_data:
